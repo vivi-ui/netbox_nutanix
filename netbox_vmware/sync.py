@@ -20,9 +20,10 @@ from ipam.choices import IPAddressStatusChoices
 from ipam.models import IPAddress
 from virtualization.models import VirtualMachine, VMInterface
 
+from .choices import VMwareDeploymentChoices
 from .exceptions import VMwareError
 from .models import VMwareEndpoint, VMwareDisk, VMwareHost, VMwareVirtualMachine
-from .vmware import VMwareClient
+from .vmware import VMwareClient, VMwareSoapClient
 
 logger = logging.getLogger('netbox.vmware')
 
@@ -65,14 +66,34 @@ class VMwareSynchronizer:
         self._manufacturer = None
         self._device_types = {}
 
-        self.client = VMwareClient(
-            base_url=endpoint.base_url,
-            username=endpoint.username,
-            password=endpoint.get_password(),
-            verify_ssl=endpoint.verify_ssl,
-            timeout=endpoint.timeout,
-            deployment=endpoint.deployment,
-        )
+        if endpoint.deployment == VMwareDeploymentChoices.ESXI:
+            # Standalone ESXi hosts frequently expose only the SOAP API.
+            self.client = VMwareSoapClient(
+                base_url=endpoint.base_url,
+                username=endpoint.username,
+                password=endpoint.get_password(),
+                verify_ssl=endpoint.verify_ssl,
+                timeout=endpoint.timeout,
+                deployment=endpoint.deployment,
+            )
+        else:
+            self.client = VMwareClient(
+                base_url=endpoint.base_url,
+                username=endpoint.username,
+                password=endpoint.get_password(),
+                verify_ssl=endpoint.verify_ssl,
+                timeout=endpoint.timeout,
+                deployment=endpoint.deployment,
+            )
+
+    def close(self):
+        for method in ('disconnect', 'logout'):
+            callback = getattr(self.client, method, None)
+            if callable(callback):
+                try:
+                    callback()
+                except Exception:  # noqa: BLE001 - best effort cleanup
+                    pass
 
     #
     # Orchestration
@@ -80,12 +101,15 @@ class VMwareSynchronizer:
 
     def run(self, sync_hosts=True, sync_vms=True):
         self.log(f"Starting VMware sync for endpoint '{self.endpoint}'")
-        self.client.test_connection()
+        try:
+            self.client.test_connection()
 
-        if sync_hosts:
-            self.sync_hosts()
-        if sync_vms:
-            self.sync_vms()
+            if sync_hosts:
+                self.sync_hosts()
+            if sync_vms:
+                self.sync_vms()
+        finally:
+            self.close()
 
         self.log(f"VMware sync finished for '{self.endpoint}': {self.result.summary()}")
         return self.result

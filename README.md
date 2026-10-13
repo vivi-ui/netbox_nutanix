@@ -9,10 +9,15 @@ A NetBox plugin that synchronizes **VMware** infrastructure into NetBox:
   objects, including their network interfaces (`virtualization.VMInterface`),
   assigned IP addresses and per-disk records (`VMwareDisk`).
 
-The plugin talks to the VMware vSphere Automation REST API exposed by vCenter
-Server or a standalone ESXi host, stores the discovered objects in its own tables
-so that mappings can be tracked over time, and runs synchronization as a
-background job.
+The plugin talks to VMware over the API best suited to each endpoint type:
+
+* **vCenter Server** is queried through the **vSphere Automation REST API**
+  (`/api`).
+* **Standalone ESXi** hosts are queried through the **SOAP (vim25) API**
+  (`/sdk`), which is available on every ESXi host even when the REST API is not.
+
+Discovered objects are stored in the plugin's own tables so that mappings can be
+tracked over time, and synchronization runs as a background job.
 
 ## Requirements
 
@@ -74,7 +79,7 @@ sudo systemctl restart netbox netbox-rq
 
 | Field | Description |
 |-------|-------------|
-| Deployment | `vCenter Server` (full `/api` tree) or `Standalone ESXi` (subset of `/api`). |
+| Deployment | `vCenter Server` (vSphere Automation REST) or `Standalone ESXi` (SOAP/vim25). |
 | Base URL | e.g. `https://vcenter.example.com` or `https://esxi.example.com` |
 | Verify SSL | Disable for self-signed certificates (not recommended). |
 | Site | Site assigned to synchronized devices. |
