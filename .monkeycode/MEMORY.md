@@ -73,3 +73,14 @@ Entries discovered by the Agent during task execution should follow this format:
   - 若测试库残留导致删除提示，加 `--noinput` 让其自动处理。
   - 该命令属资源密集型长任务，应通过 background terminal 执行（省略 cgroup 限制，仅设 `timeout`）。
   - 纯 `SimpleTestCase` 单元测试不建库，运行很快；只有引入 `TestCase` 才会触发建库。
+
+[Project Knowledge Summary]
+- Date: 2026-10-13
+- Context: Discovered by Agent while enabling the netbox_vmware plugin alongside netbox_nutanix for testing
+- Category: Environment Configuration
+- Instructions:
+  - setuptools 可编辑安装（`pip install -e /workspace`）只会暴露 `pyproject.toml` 中 `packages.find.include` 列出的包；同一工作区里的其他包无法导入，即使它在 `/workspace` 下。
+  - 要让同一工作区的第二个插件包（如 `netbox_nutanix`）可导入，可在 venv 的 site-packages 放一个 `.pth` 文件，内容为 `/workspace`；随后把该插件加入 `configuration.py` 的 `PLUGINS`，其 ContentType 才能被 `model_class()` 解析。
+  - 当某个插件的残留 `core.Job` 记录引用了一个已卸载插件的 ContentType 时，`/core/jobs/` 会因预取失败报 `'NoneType' object has no attribute '_base_manager'`（500）。修复方式：让对应插件重新可导入并启用，或清理这些残留 Job。
+  - ESXi 端点的 SOAP API（`/sdk`）用 pyvmomi 访问；部分 ESXi 只提供 SOAP，不提供 vSphere Automation REST（`/api`，会返回 400/JSON-RPC 错误）。连接 ESXi 需在 venv 安装 `pyvmomi`（`/opt/netboxenv/bin/pip install pyvmomi`）。
+  - 手动触发端点同步（走 worker）：`VMwareSyncJob.enqueue(instance=endpoint, name=..., cluster_pk=endpoint.pk, sync_hosts=True, sync_vms=True)`。
