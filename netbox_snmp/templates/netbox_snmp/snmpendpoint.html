@@ -1,0 +1,160 @@
+{% extends 'generic/object.html' %}
+{% load helpers %}
+{% load django_tables2 %}
+
+{% block content %}
+<div class="row mb-3">
+  <div class="col col-md-6">
+    <div class="card">
+      <h5 class="card-header">Endpoint</h5>
+      <table class="table table-hover attr-table">
+        <tr>
+          <th scope="row">Name</th>
+          <td>{{ object.name }}</td>
+        </tr>
+        <tr>
+          <th scope="row">Enabled</th>
+          <td>{% if object.enabled %}<span class="text-success">Yes</span>{% else %}<span class="text-danger">No</span>{% endif %}</td>
+        </tr>
+        <tr>
+          <th scope="row">SNMP version</th>
+          <td>{{ object.get_snmp_version_display }}</td>
+        </tr>
+        <tr>
+          <th scope="row">Port</th>
+          <td>{{ object.port }}</td>
+        </tr>
+        <tr>
+          <th scope="row">Timeout</th>
+          <td>{{ object.timeout }} s</td>
+        </tr>
+        <tr>
+          <th scope="row">Retries</th>
+          <td>{{ object.retries }}</td>
+        </tr>
+      </table>
+    </div>
+    <div class="card">
+      <h5 class="card-header">Credentials</h5>
+      <table class="table table-hover attr-table">
+        {% if object.snmp_version == '3' %}
+          <tr>
+            <th scope="row">Security username</th>
+            <td>{{ object.security_username|placeholder }}</td>
+          </tr>
+          <tr>
+            <th scope="row">Security level</th>
+            <td>{{ object.get_security_level_display }}</td>
+          </tr>
+          <tr>
+            <th scope="row">Authentication</th>
+            <td>{{ object.get_auth_protocol_display }}</td>
+          </tr>
+          <tr>
+            <th scope="row">Privacy</th>
+            <td>{{ object.get_priv_protocol_display }}</td>
+          </tr>
+        {% else %}
+          <tr>
+            <th scope="row">Community</th>
+            <td>{% if object.community %}********{% else %}{{ ''|placeholder }}{% endif %}</td>
+          </tr>
+        {% endif %}
+      </table>
+    </div>
+  </div>
+  <div class="col col-md-6">
+    <div class="card">
+      <h5 class="card-header">Discovery</h5>
+      <div class="card-body">
+        <p>
+          Poll the configured targets over SNMP, enumerate each device's interfaces and
+          IP addresses, follow LLDP/CDP neighbours and reconcile the results into NetBox.
+          The job runs in the background.
+        </p>
+        <form method="post" action="{% url 'plugins:netbox_snmp:snmpendpoint_sync' object.pk %}" class="d-inline">
+          {% csrf_token %}
+          <button type="submit" class="btn btn-primary">
+            <i class="mdi mdi-sync"></i> Discover now
+          </button>
+        </form>
+        <form method="post" action="{% url 'plugins:netbox_snmp:snmpendpoint_cancel' object.pk %}" class="d-inline">
+          {% csrf_token %}
+          <button type="submit" class="btn btn-outline-danger"
+                  onclick="return confirm('Request a graceful stop of the running discovery job?');">
+            <i class="mdi mdi-stop"></i> Stop
+          </button>
+        </form>
+      </div>
+    </div>
+    <div class="card">
+      <h5 class="card-header">Synchronization defaults</h5>
+      <table class="table table-hover attr-table">
+        <tr>
+          <th scope="row">Site</th>
+          <td>{{ object.site|linkify }}</td>
+        </tr>
+        <tr>
+          <th scope="row">Device role</th>
+          <td>{{ object.device_role|linkify|placeholder }}</td>
+        </tr>
+        <tr>
+          <th scope="row">Manufacturer</th>
+          <td>{{ object.manufacturer|linkify|placeholder }}</td>
+        </tr>
+        <tr>
+          <th scope="row">Device type</th>
+          <td>{{ object.device_type|linkify|placeholder }}</td>
+        </tr>
+        <tr>
+          <th scope="row">Tenant</th>
+          <td>{{ object.tenant|linkify|placeholder }}</td>
+        </tr>
+        <tr>
+          <th scope="row">Delete stale objects</th>
+          <td>{{ object.delete_stale|yesno:"Yes,No" }}</td>
+        </tr>
+        <tr>
+          <th scope="row">Discover neighbors</th>
+          <td>{{ object.discover_neighbors|yesno:"Yes,No" }}</td>
+        </tr>
+        <tr>
+          <th scope="row">Max depth</th>
+          <td>{{ object.max_depth }}</td>
+        </tr>
+        <tr>
+          <th scope="row">Max devices</th>
+          <td>{{ object.max_devices }}</td>
+        </tr>
+      </table>
+    </div>
+  </div>
+</div>
+<div class="row">
+  <div class="col col-md-12">
+    <div class="card">
+      <h5 class="card-header">
+        Targets
+        <div class="card-actions">
+          <a href="{% url 'plugins:netbox_snmp:snmptarget_add' %}?endpoint={{ object.pk }}" class="btn btn-ghost-primary btn-sm">
+            <i class="mdi mdi-plus-thick"></i> Add targets
+          </a>
+        </div>
+      </h5>
+      <div class="table-responsive">
+        {% render_table targets_table %}
+      </div>
+    </div>
+  </div>
+</div>
+<div class="row mt-3">
+  <div class="col col-md-12">
+    <div class="card">
+      <h5 class="card-header">Devices</h5>
+      <div class="table-responsive">
+        {% render_table devices_table %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock content %}

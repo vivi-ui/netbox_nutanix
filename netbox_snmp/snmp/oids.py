@@ -1,0 +1,93 @@
+"""
+Object identifiers used by the discovery engine.
+
+Only the subset of the standard MIBs required to enumerate a device and its
+interfaces (SNMPv2-MIB, IF-MIB, IP-MIB, ENTITY-MIB) plus the LLDP/CDP neighbour
+tables is defined here.
+"""
+
+# SNMPv2-MIB :: system
+SYS_DESCR = '1.3.6.1.2.1.1.1.0'
+SYS_OBJECT_ID = '1.3.6.1.2.1.1.2.0'
+SYS_UPTIME = '1.3.6.1.2.1.1.3.0'
+SYS_CONTACT = '1.3.6.1.2.1.1.4.0'
+SYS_NAME = '1.3.6.1.2.1.1.5.0'
+SYS_LOCATION = '1.3.6.1.2.1.1.6.0'
+
+SYSTEM_OIDS = {
+    'sys_descr': SYS_DESCR,
+    'sys_object_id': SYS_OBJECT_ID,
+    'sys_uptime': SYS_UPTIME,
+    'sys_contact': SYS_CONTACT,
+    'sys_name': SYS_NAME,
+    'sys_location': SYS_LOCATION,
+}
+
+# IF-MIB :: ifTable
+IF_INDEX = '1.3.6.1.2.1.2.2.1.1'
+IF_DESCR = '1.3.6.1.2.1.2.2.1.2'
+IF_TYPE = '1.3.6.1.2.1.2.2.1.3'
+IF_MTU = '1.3.6.1.2.1.2.2.1.4'
+IF_SPEED = '1.3.6.1.2.1.2.2.1.5'
+IF_PHYS_ADDRESS = '1.3.6.1.2.1.2.2.1.6'
+IF_ADMIN_STATUS = '1.3.6.1.2.1.2.2.1.7'
+IF_OPER_STATUS = '1.3.6.1.2.1.2.2.1.8'
+
+# IF-MIB :: ifXTable
+IF_NAME = '1.3.6.1.2.1.31.1.1.1.1'
+IF_HIGH_SPEED = '1.3.6.1.2.1.31.1.1.1.15'
+IF_ALIAS = '1.3.6.1.2.1.31.1.1.1.18'
+
+# IP-MIB :: ipAddrTable
+IP_AD_ENT_ADDR = '1.3.6.1.2.1.4.20.1.1'
+IP_AD_ENT_IF_INDEX = '1.3.6.1.2.1.4.20.1.2'
+IP_AD_ENT_NET_MASK = '1.3.6.1.2.1.4.20.1.3'
+
+# IP-MIB :: ipNetToMediaTable (ARP)
+IP_NET_TO_MEDIA_IF_INDEX = '1.3.6.1.2.1.4.22.1.1'
+IP_NET_TO_MEDIA_PHYS_ADDRESS = '1.3.6.1.2.1.4.22.1.2'
+IP_NET_TO_MEDIA_NET_ADDRESS = '1.3.6.1.2.1.4.22.1.3'
+IP_NET_TO_MEDIA_TYPE = '1.3.6.1.2.1.4.22.1.4'
+
+# ENTITY-MIB :: entPhysicalTable
+ENT_PHYSICAL_CLASS = '1.3.6.1.2.1.47.1.1.1.1.5'
+ENT_PHYSICAL_SERIAL_NUM = '1.3.6.1.2.1.47.1.1.1.1.11'
+
+# LLDP-MIB :: lldpRemTable / lldpRemManAddrTable
+LLDP_REM_CHASSIS_ID = '1.0.8802.1.1.2.1.4.1.1.5'
+LLDP_REM_PORT_ID_SUBTYPE = '1.0.8802.1.1.2.1.4.1.1.6'
+LLDP_REM_PORT_ID = '1.0.8802.1.1.2.1.4.1.1.7'
+LLDP_REM_PORT_DESC = '1.0.8802.1.1.2.1.4.1.1.8'
+LLDP_REM_SYS_NAME = '1.0.8802.1.1.2.1.4.1.1.9'
+LLDP_REM_MAN_ADDR_IF_SUBTYPE = '1.0.8802.1.1.2.1.4.2.1.2'
+LLDP_REM_MAN_ADDR_IF_ID = '1.0.8802.1.1.2.1.4.2.1.3'
+
+# CISCO-CDP-MIB :: cdpCacheTable
+CDP_CACHE_ADDRESS_TYPE = '1.3.6.1.4.1.9.9.23.1.2.1.1.3'
+CDP_CACHE_ADDRESS = '1.3.6.1.4.1.9.9.23.1.2.1.1.4'
+CDP_CACHE_DEVICE_ID = '1.3.6.1.4.1.9.9.23.1.2.1.1.6'
+CDP_CACHE_DEVICE_PORT = '1.3.6.1.4.1.9.9.23.1.2.1.1.7'
+CDP_CACHE_PLATFORM = '1.3.6.1.4.1.9.9.23.1.2.1.1.8'
+
+# BRIDGE-MIB :: dot1dBasePortTable / dot1dTpFdbTable
+DOT1D_BASE_PORT_IF_INDEX = '1.3.6.1.2.1.17.1.4.1.2'
+DOT1D_TP_FDB_ADDRESS = '1.3.6.1.2.1.17.4.3.1.1'
+DOT1D_TP_FDB_PORT = '1.3.6.1.2.1.17.4.3.1.2'
+DOT1D_TP_FDB_STATUS = '1.3.6.1.2.1.17.4.3.1.3'
+
+# Q-BRIDGE-MIB :: dot1qVlanStaticTable
+DOT1Q_VLAN_STATIC_NAME = '1.3.6.1.2.1.17.7.1.4.3.1.1'
+DOT1Q_VLAN_STATIC_EGRESS = '1.3.6.1.2.1.17.7.1.4.3.1.2'
+DOT1Q_VLAN_STATIC_UNTAGGED = '1.3.6.1.2.1.17.7.1.4.3.1.4'
+
+# IANA ifType values referenced by the interface type mapper
+IF_TYPE_OTHER = 1
+IF_TYPE_ETHERNET = 6
+IF_TYPE_SOFTWARE_LOOPBACK = 24
+IF_TYPE_PROP_VIRTUAL = 53
+IF_TYPE_L2_VLAN = 135
+IF_TYPE_TUNNEL = 131
+IF_TYPE_LAG = 161
+
+# ENTITY-MIB entPhysicalClass :: chassis
+ENT_CLASS_CHASSIS = 3

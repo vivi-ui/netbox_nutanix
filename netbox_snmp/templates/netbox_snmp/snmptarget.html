@@ -1,0 +1,30 @@
+{% extends 'generic/object.html' %}
+{% load helpers %}
+
+{% block content %}
+<div class="row">
+  <div class="col col-md-6">
+    <div class="card">
+      <h5 class="card-header">SNMP target</h5>
+      <table class="table table-hover attr-table">
+        <tr>
+          <th scope="row">Address</th>
+          <td>{{ object.address }}</td>
+        </tr>
+        <tr>
+          <th scope="row">Endpoint</th>
+          <td>{{ object.endpoint|linkify }}</td>
+        </tr>
+        <tr>
+          <th scope="row">Enabled</th>
+          <td>{% if object.enabled %}<span class="text-success">Yes</span>{% else %}<span class="text-danger">No</span>{% endif %}</td>
+        </tr>
+        <tr>
+          <th scope="row">Description</th>
+          <td>{{ object.description|placeholder }}</td>
+        </tr>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock content %}

@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "netbox-snmp"
+version = "0.1.0"
+authors = [
+    {name = "MonkeyCode", email = "support@monkeycode-ai.com"},
+]
+description = "Discover network devices and their interfaces over SNMP (v2c/v3) into NetBox."
+readme = "README.md"
+license = {text = "Apache-2.0"}
+requires-python = ">=3.10.0"
+dependencies = [
+    "cryptography>=3.4",
+    "pysnmp>=7.0.0",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Natural Language :: English",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+
+[tool.setuptools.packages.find]
+include = ["netbox_snmp*"]
+
+[tool.setuptools.package-data]
+netbox_snmp = [
+    "templates/**/*.html",
+    "migrations/*.py",
+]

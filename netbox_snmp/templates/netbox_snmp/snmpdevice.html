@@ -1,0 +1,67 @@
+{% extends 'generic/object.html' %}
+{% load helpers %}
+
+{% block content %}
+<div class="row">
+  <div class="col col-md-6">
+    <div class="card">
+      <h5 class="card-header">SNMP device</h5>
+      <table class="table table-hover attr-table">
+        <tr>
+          <th scope="row">System name</th>
+          <td>{{ object.sys_name|placeholder }}</td>
+        </tr>
+        <tr>
+          <th scope="row">Address</th>
+          <td>{{ object.address }}</td>
+        </tr>
+        <tr>
+          <th scope="row">Endpoint</th>
+          <td>{{ object.endpoint|linkify }}</td>
+        </tr>
+        <tr>
+          <th scope="row">Serial</th>
+          <td>{{ object.serial|placeholder }}</td>
+        </tr>
+        <tr>
+          <th scope="row">Object ID</th>
+          <td>{{ object.sys_object_id|placeholder }}</td>
+        </tr>
+        <tr>
+          <th scope="row">Location</th>
+          <td>{{ object.sys_location|placeholder }}</td>
+        </tr>
+        <tr>
+          <th scope="row">Contact</th>
+          <td>{{ object.sys_contact|placeholder }}</td>
+        </tr>
+        <tr>
+          <th scope="row">Uptime</th>
+          <td>{{ object.uptime|placeholder }}</td>
+        </tr>
+      </table>
+    </div>
+  </div>
+  <div class="col col-md-6">
+    <div class="card">
+      <h5 class="card-header">NetBox</h5>
+      <table class="table table-hover attr-table">
+        <tr>
+          <th scope="row">Device</th>
+          <td>{{ object.netbox_device|linkify|placeholder }}</td>
+        </tr>
+        <tr>
+          <th scope="row">Last synced</th>
+          <td>{{ object.last_synced|placeholder }}</td>
+        </tr>
+      </table>
+    </div>
+    <div class="card">
+      <h5 class="card-header">System description</h5>
+      <div class="card-body">
+        <pre class="mb-0">{{ object.sys_descr|placeholder }}</pre>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock content %}
