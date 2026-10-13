@@ -1,0 +1,49 @@
+{% extends 'generic/object.html' %}
+{% load helpers %}
+
+{% block content %}
+<div class="row">
+  <div class="col col-md-6">
+    <div class="card">
+      <h5 class="card-header">Nutanix host</h5>
+      <table class="table table-hover attr-table">
+        <tr>
+          <th scope="row">Name</th>
+          <td>{{ object.name }}</td>
+        </tr>
+        <tr>
+          <th scope="row">Endpoint</th>
+          <td>{{ object.cluster|linkify }}</td>
+        </tr>
+        <tr>
+          <th scope="row">Nutanix UUID</th>
+          <td>{{ object.uuid }}</td>
+        </tr>
+        <tr>
+          <th scope="row">Serial</th>
+          <td>{{ object.serial|placeholder }}</td>
+        </tr>
+        <tr>
+          <th scope="row">IP address</th>
+          <td>{{ object.ip_address|placeholder }}</td>
+        </tr>
+      </table>
+    </div>
+  </div>
+  <div class="col col-md-6">
+    <div class="card">
+      <h5 class="card-header">NetBox</h5>
+      <table class="table table-hover attr-table">
+        <tr>
+          <th scope="row">Device</th>
+          <td>{{ object.netbox_device|linkify|placeholder }}</td>
+        </tr>
+        <tr>
+          <th scope="row">Last synced</th>
+          <td>{{ object.last_synced|placeholder }}</td>
+        </tr>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock content %}

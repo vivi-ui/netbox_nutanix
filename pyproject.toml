@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "netbox-nutanix"
+version = "0.1.0"
+authors = [
+    {name = "MonkeyCode", email = "support@monkeycode-ai.com"},
+]
+description = "Synchronize Nutanix hosts (devices) and virtual machines into NetBox."
+readme = "README.md"
+license = {text = "Apache-2.0"}
+requires-python = ">=3.10.0"
+dependencies = [
+    "requests>=2.25.0",
+    "cryptography>=3.4",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Natural Language :: English",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+
+[tool.setuptools.packages.find]
+include = ["netbox_nutanix*"]
+
+[tool.setuptools.package-data]
+netbox_nutanix = [
+    "templates/**/*.html",
+    "migrations/*.py",
+]

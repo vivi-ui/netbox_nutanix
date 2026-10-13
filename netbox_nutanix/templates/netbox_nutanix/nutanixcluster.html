@@ -1,0 +1,112 @@
+{% extends 'generic/object.html' %}
+{% load helpers %}
+{% load django_tables2 %}
+
+{% block content %}
+<div class="row mb-3">
+  <div class="col col-md-6">
+    <div class="card">
+      <h5 class="card-header">Endpoint</h5>
+      <table class="table table-hover attr-table">
+        <tr>
+          <th scope="row">Name</th>
+          <td>{{ object.name }}</td>
+        </tr>
+        <tr>
+          <th scope="row">Enabled</th>
+          <td>{% if object.enabled %}<span class="text-success">Yes</span>{% else %}<span class="text-danger">No</span>{% endif %}</td>
+        </tr>
+        <tr>
+          <th scope="row">Deployment</th>
+          <td>{{ object.get_deployment_display }}</td>
+        </tr>
+        <tr>
+          <th scope="row">Base URL</th>
+          <td>{{ object.base_url }}</td>
+        </tr>
+        <tr>
+          <th scope="row">Username</th>
+          <td>{{ object.username }}</td>
+        </tr>
+        <tr>
+          <th scope="row">Verify SSL</th>
+          <td>{{ object.verify_ssl|yesno:"Yes,No" }}</td>
+        </tr>
+        <tr>
+          <th scope="row">Timeout</th>
+          <td>{{ object.timeout }} s</td>
+        </tr>
+      </table>
+    </div>
+    <div class="card">
+      <h5 class="card-header">Synchronization defaults</h5>
+      <table class="table table-hover attr-table">
+        <tr>
+          <th scope="row">Site</th>
+          <td>{{ object.site|linkify }}</td>
+        </tr>
+        <tr>
+          <th scope="row">Device role</th>
+          <td>{{ object.device_role|linkify|placeholder }}</td>
+        </tr>
+        <tr>
+          <th scope="row">Manufacturer</th>
+          <td>{{ object.manufacturer|linkify|placeholder }}</td>
+        </tr>
+        <tr>
+          <th scope="row">Virtualization cluster</th>
+          <td>{{ object.cluster|linkify|placeholder }}</td>
+        </tr>
+        <tr>
+          <th scope="row">Tenant</th>
+          <td>{{ object.tenant|linkify|placeholder }}</td>
+        </tr>
+        <tr>
+          <th scope="row">Delete stale objects</th>
+          <td>{{ object.delete_stale|yesno:"Yes,No" }}</td>
+        </tr>
+      </table>
+    </div>
+  </div>
+  <div class="col col-md-6">
+    <div class="card">
+      <h5 class="card-header">Synchronization</h5>
+      <div class="card-body">
+        <p>
+          Trigger an on-demand synchronization with this Nutanix endpoint. Hosts are
+          reconciled as NetBox devices and virtual machines as NetBox virtual machines.
+          The job runs in the background.
+        </p>
+        <form method="post" action="{% url 'plugins:netbox_nutanix:nutanixcluster_sync' object.pk %}">
+          {% csrf_token %}
+          <input type="hidden" name="sync_hosts" value="true">
+          <input type="hidden" name="sync_vms" value="true">
+          <button type="submit" class="btn btn-primary">
+            <i class="mdi mdi-sync"></i> Sync now
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="row">
+  <div class="col col-md-12">
+    <div class="card">
+      <h5 class="card-header">Hosts</h5>
+      <div class="table-responsive">
+        {% render_table hosts_table %}
+      </div>
+    </div>
+  </div>
+</div>
+<div class="row mt-3">
+  <div class="col col-md-12">
+    <div class="card">
+      <h5 class="card-header">Virtual machines</h5>
+      <div class="table-responsive">
+        {% render_table vms_table %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock content %}
