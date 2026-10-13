@@ -234,8 +234,9 @@ class NutanixSynchronizer:
                 vm.vcpus = data['vcpus']
             if data.get('memory_mb'):
                 vm.memory = data['memory_mb']
-            if data.get('disk_gb'):
-                vm.disk = data['disk_gb']
+            if data.get('disk_mb'):
+                # NetBox stores the virtual machine disk size in MB.
+                vm.disk = data['disk_mb']
             vm.status = map_vm_status(data.get('power_state'))
             vm.save()
 
@@ -244,7 +245,7 @@ class NutanixSynchronizer:
             record.power_state = data.get('power_state') or ''
             record.vcpus = data.get('vcpus')
             record.memory_mb = data.get('memory_mb')
-            record.disk_gb = data.get('disk_gb')
+            record.disk_gb = data.get('disk_gib')
             record.host_uuid = data.get('host_uuid') or None
             record.netbox_vm = vm
             record.last_synced = timezone.now()
@@ -427,8 +428,10 @@ class NutanixSynchronizer:
             obj = None
             if disk_uuid:
                 obj = record.disks.filter(uuid=disk_uuid).first()
-            if obj is None and device_index is not None:
-                obj = record.disks.filter(device_index=device_index).first()
+            elif device_index is not None:
+                # Fall back to the device index only for entries without a UUID so
+                # that same-index devices (e.g. disks and CD-ROMs) never collide.
+                obj = record.disks.filter(uuid__isnull=True, device_index=device_index).first()
             if obj is None:
                 obj = NutanixDisk(virtual_machine=record)
 

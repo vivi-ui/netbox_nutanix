@@ -214,7 +214,7 @@ class NutanixVirtualMachine(NetBoxModel):
         null=True,
     )
     disk_gb = models.PositiveBigIntegerField(
-        verbose_name=_('disk (GB)'),
+        verbose_name=_('disk (GiB)'),
         blank=True,
         null=True,
     )
@@ -301,7 +301,7 @@ class NutanixDisk(NetBoxModel):
         return reverse('plugins:netbox_nutanix:nutanixdisk', args=[self.pk])
 
     @property
-    def size_gb(self):
+    def size_gib(self):
         if self.size_bytes is None:
             return None
-        return int(self.size_bytes / (1024 ** 3))
+        return round(self.size_bytes / (1024 ** 3), 2)

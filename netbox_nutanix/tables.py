@@ -62,15 +62,15 @@ class NutanixVirtualMachineTable(NetBoxTable):
 
 class NutanixDiskTable(NetBoxTable):
     virtual_machine = tables.Column(linkify=True, verbose_name='Virtual machine')
-    size_gb = tables.Column(verbose_name='Size (GB)')
+    size_gib = tables.Column(verbose_name='Size (GiB)')
     actions = READ_ONLY_ACTIONS
 
     class Meta(NetBoxTable.Meta):
         model = NutanixDisk
         fields = (
-            'pk', 'virtual_machine', 'uuid', 'device_index', 'adapter_type', 'size_gb',
+            'pk', 'virtual_machine', 'uuid', 'device_index', 'adapter_type', 'size_gib',
             'storage_container', 'last_updated',
         )
         default_columns = (
-            'virtual_machine', 'device_index', 'adapter_type', 'size_gb', 'storage_container',
+            'virtual_machine', 'device_index', 'adapter_type', 'size_gib', 'storage_container',
         )

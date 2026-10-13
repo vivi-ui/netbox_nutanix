@@ -216,6 +216,18 @@ class NutanixClient:
             if not isinstance(disk, dict):
                 continue
 
+            device_properties = disk.get('device_properties') or {}
+            address = device_properties.get('disk_address') or disk.get('disk_address') or {}
+
+            # Only physical/virtual data disks belong in the disk list. CD-ROMs
+            # and volume groups share a device index with real disks but carry no
+            # usable capacity, so they must be excluded.
+            device_type = (
+                device_properties.get('device_type') or disk.get('device_type') or ''
+            ).upper()
+            if device_type in ('CDROM', 'VOLUME_GROUP') or disk.get('is_cdrom'):
+                continue
+
             vm_disk = disk.get('vm_disk') or {}
             size = disk.get('disk_size_bytes')
             if size is None and disk.get('disk_size_mib') is not None:
@@ -225,8 +237,6 @@ class NutanixClient:
             if size is None:
                 size = vm_disk.get('disk_size_in_bytes')
 
-            device_properties = disk.get('device_properties') or {}
-            address = device_properties.get('disk_address') or disk.get('disk_address') or {}
             storage_config = disk.get('storage_config') or {}
             container = storage_config.get('storage_container_reference') or {}
 
@@ -301,12 +311,8 @@ class NutanixClient:
             except (TypeError, ValueError):
                 vcpus = None
 
-        disk_bytes = 0
-        for disk in (resources.get('disk_list') or []):
-            size = disk.get('disk_size_bytes')
-            if size is None and disk.get('disk_size_mib') is not None:
-                size = int(disk['disk_size_mib']) * 1024 * 1024
-            disk_bytes += int(size or 0)
+        disks = self._normalize_disks(resources)
+        disk_bytes = sum(int(disk['size_bytes']) for disk in disks if disk.get('size_bytes'))
 
         return {
             'uuid': metadata.get('uuid'),
@@ -314,11 +320,12 @@ class NutanixClient:
             'power_state': (resources.get('power_state') or '').lower(),
             'vcpus': vcpus,
             'memory_mb': resources.get('memory_size_mib'),
-            'disk_gb': self._bytes_to_gib(disk_bytes) if disk_bytes else None,
+            'disk_gib': self._bytes_to_gib(disk_bytes) if disk_bytes else None,
+            'disk_mb': disk_bytes // (1024 ** 2) if disk_bytes else None,
             'host_uuid': (resources.get('host_reference') or {}).get('uuid'),
             'cluster_uuid': (status.get('cluster_reference') or {}).get('uuid'),
             'interfaces': self._normalize_interfaces(resources),
-            'disks': self._normalize_disks(resources),
+            'disks': disks,
         }
 
     def _normalize_pe_vm(self, entity):
@@ -330,9 +337,8 @@ class NutanixClient:
         except (TypeError, ValueError):
             vcpus = None
 
-        disk_bytes = 0
-        for disk in (entity.get('vm_disks') or []):
-            disk_bytes += int(disk.get('disk_size_in_bytes') or 0)
+        disks = self._normalize_disks(entity)
+        disk_bytes = sum(int(disk['size_bytes']) for disk in disks if disk.get('size_bytes'))
 
         return {
             'uuid': entity.get('uuid'),
@@ -340,10 +346,11 @@ class NutanixClient:
             'power_state': power,
             'vcpus': vcpus,
             'memory_mb': entity.get('memory_mb'),
-            'disk_gb': self._bytes_to_gib(disk_bytes) if disk_bytes else None,
+            'disk_gib': self._bytes_to_gib(disk_bytes) if disk_bytes else None,
+            'disk_mb': disk_bytes // (1024 ** 2) if disk_bytes else None,
             'host_uuid': entity.get('host_uuid'),
             'cluster_uuid': entity.get('cluster_uuid'),
             'ip_addresses': entity.get('ip_addresses') or [],
             'interfaces': self._normalize_interfaces(entity),
-            'disks': self._normalize_disks(entity),
+            'disks': disks,
         }

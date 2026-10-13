@@ -49,7 +49,8 @@ class NormalizationTestCase(SimpleTestCase):
         self.assertEqual(vm['name'], 'web-01')
         self.assertEqual(vm['vcpus'], 8)
         self.assertEqual(vm['memory_mb'], 8192)
-        self.assertEqual(vm['disk_gb'], 20)
+        self.assertEqual(vm['disk_gib'], 20)
+        self.assertEqual(vm['disk_mb'], 20 * 1024)
         self.assertEqual(vm['power_state'], 'on')
         self.assertEqual(vm['cluster_uuid'], 'cluster-1')
         self.assertEqual(len(vm['interfaces']), 1)
@@ -126,7 +127,8 @@ class NormalizationTestCase(SimpleTestCase):
         vm = client._normalize_pe_vm(entity)
         self.assertEqual(vm['vcpus'], 8)
         self.assertEqual(vm['memory_mb'], 16384)
-        self.assertEqual(vm['disk_gb'], 50)
+        self.assertEqual(vm['disk_gib'], 50)
+        self.assertEqual(vm['disk_mb'], 50 * 1024)
         self.assertEqual(vm['host_uuid'], 'host-2')
         self.assertEqual(len(vm['interfaces']), 1)
         self.assertEqual(vm['interfaces'][0]['mac_address'], 'aa:bb:cc:00:11:22')
@@ -201,3 +203,44 @@ class NormalizationTestCase(SimpleTestCase):
             'disk_list': [{'disk_size_mib': 1024}],
         })
         self.assertEqual(disks[0]['size_bytes'], 1024 * 1024 * 1024)
+
+    def test_normalize_disks_skips_cdrom_and_volume_groups(self):
+        disks = NutanixClient._normalize_disks({
+            'disk_list': [
+                {
+                    'uuid': 'disk-1',
+                    'disk_size_bytes': 50 * 1024 ** 3,
+                    'device_properties': {
+                        'device_type': 'DISK',
+                        'disk_address': {'device_index': 0, 'adapter_type': 'SCSI'},
+                    },
+                },
+                {
+                    'uuid': 'cdrom-1',
+                    'device_properties': {
+                        'device_type': 'CDROM',
+                        'disk_address': {'device_index': 0, 'adapter_type': 'SATA'},
+                    },
+                },
+                {
+                    'uuid': 'vg-1',
+                    'device_properties': {
+                        'device_type': 'VOLUME_GROUP',
+                        'disk_address': {'device_index': 1, 'adapter_type': 'SCSI'},
+                    },
+                },
+            ],
+        })
+        self.assertEqual(len(disks), 1)
+        self.assertEqual(disks[0]['uuid'], 'disk-1')
+        self.assertEqual(disks[0]['device_index'], 0)
+
+    def test_normalize_disks_skips_pe_cdrom(self):
+        disks = NutanixClient._normalize_disks({
+            'vm_disks': [
+                {'is_cdrom': True, 'disk_address': {'device_index': 0}},
+                {'disk_size_in_bytes': 2 * 1024 ** 3},
+            ],
+        })
+        self.assertEqual(len(disks), 1)
+        self.assertEqual(disks[0]['size_bytes'], 2 * 1024 ** 3)

@@ -127,7 +127,8 @@ class SyncReconciliationTestCase(TestCase):
             'power_state': 'on',
             'vcpus': 2,
             'memory_mb': 2048,
-            'disk_gb': 10,
+            'disk_gib': 10,
+            'disk_mb': 10 * 1024,
             'interfaces': [
                 {
                     'index': 0,
@@ -156,6 +157,7 @@ class SyncReconciliationTestCase(TestCase):
         self.assertTrue(IPAddress.objects.filter(assigned_object_id=interface.pk).exists())
         vm.refresh_from_db()
         self.assertEqual(str(vm.primary_ip4.address), '192.168.1.10/24')
+        self.assertEqual(vm.disk, 10 * 1024)
 
         record = NutanixVirtualMachine.objects.get(uuid=data['uuid'])
         disk = NutanixDisk.objects.get(virtual_machine=record)
