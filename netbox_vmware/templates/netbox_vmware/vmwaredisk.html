@@ -1,0 +1,38 @@
+{% extends 'generic/object.html' %}
+{% load helpers %}
+
+{% block content %}
+<div class="row">
+  <div class="col col-md-6">
+    <div class="card">
+      <h5 class="card-header">VMware disk</h5>
+      <table class="table table-hover attr-table">
+        <tr>
+          <th scope="row">Virtual machine</th>
+          <td>{{ object.virtual_machine|linkify }}</td>
+        </tr>
+        <tr>
+          <th scope="row">VMware UUID</th>
+          <td>{{ object.uuid|placeholder }}</td>
+        </tr>
+        <tr>
+          <th scope="row">Device index</th>
+          <td>{{ object.device_index|placeholder }}</td>
+        </tr>
+        <tr>
+          <th scope="row">Adapter type</th>
+          <td>{{ object.adapter_type|placeholder }}</td>
+        </tr>
+        <tr>
+          <th scope="row">Size (GiB)</th>
+          <td>{{ object.size_gib|placeholder }}</td>
+        </tr>
+        <tr>
+          <th scope="row">Storage container</th>
+          <td>{{ object.storage_container|placeholder }}</td>
+        </tr>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock content %}

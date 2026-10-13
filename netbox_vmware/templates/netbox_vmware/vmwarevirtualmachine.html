@@ -1,0 +1,79 @@
+{% extends 'generic/object.html' %}
+{% load helpers %}
+{% load django_tables2 %}
+
+{% block content %}
+<div class="row">
+  <div class="col col-md-6">
+    <div class="card">
+      <h5 class="card-header">VMware virtual machine</h5>
+      <table class="table table-hover attr-table">
+        <tr>
+          <th scope="row">Name</th>
+          <td>{{ object.name }}</td>
+        </tr>
+        <tr>
+          <th scope="row">Endpoint</th>
+          <td>{{ object.cluster|linkify }}</td>
+        </tr>
+        <tr>
+          <th scope="row">VMware UUID</th>
+          <td>{{ object.uuid }}</td>
+        </tr>
+        <tr>
+          <th scope="row">Power state</th>
+          <td>{{ object.power_state|placeholder }}</td>
+        </tr>
+        <tr>
+          <th scope="row">Host UUID</th>
+          <td>{{ object.host_uuid|placeholder }}</td>
+        </tr>
+      </table>
+    </div>
+  </div>
+  <div class="col col-md-6">
+    <div class="card">
+      <h5 class="card-header">Resources</h5>
+      <table class="table table-hover attr-table">
+        <tr>
+          <th scope="row">vCPUs</th>
+          <td>{{ object.vcpus|placeholder }}</td>
+        </tr>
+        <tr>
+          <th scope="row">Memory (MB)</th>
+          <td>{{ object.memory_mb|placeholder }}</td>
+        </tr>
+        <tr>
+          <th scope="row">Disk (GiB)</th>
+          <td>{{ object.disk_gb|placeholder }}</td>
+        </tr>
+      </table>
+    </div>
+    <div class="card">
+      <h5 class="card-header">NetBox</h5>
+      <table class="table table-hover attr-table">
+        <tr>
+          <th scope="row">Virtual machine</th>
+          <td>{{ object.netbox_vm|linkify|placeholder }}</td>
+        </tr>
+        <tr>
+          <th scope="row">Last synced</th>
+          <td>{{ object.last_synced|placeholder }}</td>
+        </tr>
+      </table>
+    </div>
+  </div>
+</div>
+{% if disks_table %}
+<div class="row mt-3">
+  <div class="col col-md-12">
+    <div class="card">
+      <h5 class="card-header">Disks</h5>
+      <div class="table-responsive">
+        {% render_table disks_table %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
+{% endblock content %}
