@@ -10,7 +10,15 @@ from ipam.models import IPAddress, Prefix, VLAN
 from netbox_snmp.exceptions import SyncCancelled
 from netbox_snmp.models import SnmpDevice, SnmpEndpoint, SnmpTarget
 from netbox_snmp.snmp import oids
-from netbox_snmp.sync import SnmpSynchronizer, SyncResult, run_sync, vendor_name
+from netbox_snmp.sync import (
+    SnmpSynchronizer,
+    SyncResult,
+    detect_vendor,
+    run_sync,
+    vendor_from_descr,
+    vendor_from_entities,
+    vendor_name,
+)
 
 SYSTEM = {
     'sys_descr': b'Test switch, version 1.0',
@@ -54,10 +62,64 @@ class VendorTestCase(SimpleTestCase):
         self.assertEqual(vendor_name('1.3.6.1.4.1.9.1.2494'), 'Cisco')
         self.assertEqual(vendor_name('1.3.6.1.4.1.2636.1.1.1.2.1'), 'Juniper')
 
+    def test_symbolic_vendor(self):
+        self.assertEqual(
+            vendor_name('SNMPv2-SMI::enterprises.9.12.3.1.3.1410'), 'Cisco'
+        )
+
     def test_unknown_vendor(self):
         self.assertIsNone(vendor_name('1.3.6.1.4.1.999999.1'))
         self.assertIsNone(vendor_name(''))
         self.assertIsNone(vendor_name(None))
+
+
+class VendorFallbackTestCase(SimpleTestCase):
+    def test_vendor_from_descr(self):
+        self.assertEqual(
+            vendor_from_descr('Cisco NX-OS(tm) n6000, Software 7.3'), 'Cisco'
+        )
+        self.assertEqual(
+            vendor_from_descr('Juniper Networks, Inc. ex4300'), 'Juniper'
+        )
+        self.assertEqual(
+            vendor_from_descr(b'HP ProCurve Switch 2920'), 'Hewlett Packard'
+        )
+        self.assertEqual(
+            vendor_from_descr('MikroTik RouterOS 6.48'), 'MikroTik'
+        )
+        self.assertIsNone(vendor_from_descr('Some unknown appliance'))
+        self.assertIsNone(vendor_from_descr(''))
+        self.assertIsNone(vendor_from_descr(None))
+
+    def test_vendor_from_entities_oid(self):
+        entities = {1: {'vendor_type': '1.3.6.1.4.1.9.1.2494'}}
+        self.assertEqual(vendor_from_entities(entities), 'Cisco')
+
+    def test_vendor_from_entities_descr(self):
+        entities = {1: {'model': 'Aruba 2930F-48G'}}
+        self.assertEqual(vendor_from_entities(entities), 'Aruba')
+
+    def test_detect_vendor_precedence(self):
+        self.assertEqual(
+            detect_vendor(
+                sys_object_id='1.3.6.1.4.1.2636.1.1.1.2.1',
+                sys_descr='Cisco IOS Software',
+            ),
+            'Juniper',
+        )
+        self.assertEqual(
+            detect_vendor(sys_object_id='1.3.6.1.4.1.999999.1', sys_descr='Cisco IOS'),
+            'Cisco',
+        )
+        self.assertEqual(
+            detect_vendor(
+                sys_object_id='1.3.6.1.4.1.999999.1',
+                entities={1: {'vendor_type': '1.3.6.1.4.1.9.1.2494'}},
+                sys_descr='unknown',
+            ),
+            'Cisco',
+        )
+        self.assertIsNone(detect_vendor(sys_object_id='1.3.6.1.4.1.999999.1'))
 
 
 class SyncResultTestCase(SimpleTestCase):
@@ -136,6 +198,32 @@ class SyncDeviceTestCase(TestCase):
 
         device = Device.objects.get(name='core-sw-1')
         self.assertEqual(device.serial, 'SERIAL123')
+
+    def test_manufacturer_from_descr_when_oid_unknown(self):
+        system = dict(SYSTEM)
+        system['sys_object_id'] = '1.3.6.1.4.1.999999.1'
+        system['sys_descr'] = b'Cisco NX-OS(tm) n6000, Software 7.3(8)N1(1)'
+        with patch.object(self.sync, '_client_for', return_value=self._client(system=system)):
+            self.sync._sync_device('10.0.0.1')
+
+        device = Device.objects.get(name='core-sw-1')
+        self.assertEqual(device.device_type.manufacturer.name, 'Cisco')
+
+    def test_manufacturer_from_entity_vendor_type(self):
+        system = dict(SYSTEM)
+        system['sys_object_id'] = '1.3.6.1.4.1.999999.1'
+        system['sys_descr'] = b'unknown appliance'
+        columns = dict(INTERFACE_COLUMNS)
+        columns[oids.ENT_PHYSICAL_VENDOR_TYPE] = {
+            '1.3.6.1.2.1.47.1.1.1.1.3.1': '1.3.6.1.4.1.2636.1.1.2.2.1'
+        }
+        with patch.object(
+            self.sync, '_client_for', return_value=self._client(system=system, columns=columns)
+        ):
+            self.sync._sync_device('10.0.0.1')
+
+        device = Device.objects.get(name='core-sw-1')
+        self.assertEqual(device.device_type.manufacturer.name, 'Juniper')
 
     def test_neighbors_from_lldp_and_cdp(self):
         columns = {
@@ -406,3 +494,128 @@ class ArpCollectionTestCase(TestCase):
             self.sync._sync_device('10.0.0.1')
 
         self.assertEqual(IPAddress.objects.filter(address__endswith='/32').count(), 1)
+
+
+CISCO_IFINDEX = 369098752
+
+CISCO_BASE_COLUMNS = {
+    oids.IF_NAME: {'1.3.6.1.2.1.31.1.1.1.1.%d' % CISCO_IFINDEX: b'Vlan88'},
+    oids.IF_DESCR: {'1.3.6.1.2.1.2.2.1.2.%d' % CISCO_IFINDEX: b'Vlan88'},
+    oids.IF_TYPE: {'1.3.6.1.2.1.2.2.1.3.%d' % CISCO_IFINDEX: 135},
+    oids.IF_HIGH_SPEED: {'1.3.6.1.2.1.31.1.1.1.15.%d' % CISCO_IFINDEX: 1000},
+    oids.IF_ADMIN_STATUS: {'1.3.6.1.2.1.2.2.1.7.%d' % CISCO_IFINDEX: 1},
+    oids.CISCO_VTP_VLAN_NAME: {'1.3.6.1.4.1.9.9.46.1.3.1.1.4.1.88': b'docker'},
+    oids.CISCO_VTP_VLAN_STATE: {'1.3.6.1.4.1.9.9.46.1.3.1.1.2.1.88': 1},
+    oids.CISCO_VM_MEMBERSHIP_IF_INDEX: {
+        '1.3.6.1.4.1.9.9.68.1.2.2.1.2.%d' % CISCO_IFINDEX: 88,
+    },
+}
+
+CISCO_CONTEXT_COLUMNS = {
+    oids.DOT1D_BASE_PORT_IF_INDEX: {'1.3.6.1.2.1.17.1.4.1.2.4096': CISCO_IFINDEX},
+    oids.DOT1D_TP_FDB_PORT: {'1.3.6.1.2.1.17.4.3.1.2.0.23.164.119.40.62': 4096},
+}
+
+
+def cisco_client_for(system, base_columns, context_columns):
+    def factory(address, retries=None, community=None):
+        columns = context_columns if community and '@' in community else base_columns
+        return FakeClient(address, system=dict(system), columns=columns)
+    return factory
+
+
+class CiscoVlanCollectionTestCase(TestCase):
+    def setUp(self):
+        self.site = Site.objects.create(name='Cisco Site', slug='cisco-site')
+        self.endpoint = SnmpEndpoint.objects.create(
+            name='snmp-cisco', site=self.site, collect_vlans=True
+        )
+        self.sync = SnmpSynchronizer(self.endpoint, log=lambda *a, **k: None)
+
+    def test_collects_vlans_without_qbridge(self):
+        client_for = cisco_client_for(SYSTEM, dict(CISCO_BASE_COLUMNS), dict(CISCO_CONTEXT_COLUMNS))
+        with patch.object(self.sync, '_client_for', side_effect=client_for):
+            self.sync._sync_device('10.0.0.1')
+
+        vlan = VLAN.objects.get(vid=88)
+        self.assertEqual(vlan.name, 'docker')
+        interface = Device.objects.get(name='core-sw-1').interfaces.get(name='Vlan88')
+        self.assertEqual(interface.untagged_vlan, vlan)
+        self.assertEqual(interface.mode, InterfaceModeChoices.MODE_ACCESS)
+
+
+class CiscoFdbCollectionTestCase(TestCase):
+    def setUp(self):
+        self.site = Site.objects.create(name='Cisco FDB', slug='cisco-fdb')
+        self.endpoint = SnmpEndpoint.objects.create(
+            name='snmp-cisco-fdb', site=self.site, collect_arp=True, collect_fdb=True
+        )
+        self.endpoint.set_community('public')
+        self.endpoint.save()
+        self.sync = SnmpSynchronizer(self.endpoint, log=lambda *a, **k: None)
+
+    def test_fdb_resolves_arp_via_vlan_context(self):
+        base = dict(CISCO_BASE_COLUMNS)
+        base[oids.IP_NET_TO_MEDIA_PHYS_ADDRESS] = {
+            '1.3.6.1.2.1.4.22.1.2.999.10.0.0.5': b'\x00\x17\xa4\x77\x28\x3e',
+        }
+        client_for = cisco_client_for(SYSTEM, base, dict(CISCO_CONTEXT_COLUMNS))
+        with patch.object(self.sync, '_client_for', side_effect=client_for):
+            self.sync._sync_device('10.0.0.1')
+
+        interface = Device.objects.get(name='core-sw-1').interfaces.get(name='Vlan88')
+        ip = IPAddress.objects.get(address='10.0.0.5/32')
+        self.assertEqual(ip.assigned_object_id, interface.pk)
+
+
+class ModuleCollectionTestCase(TestCase):
+    def setUp(self):
+        self.site = Site.objects.create(name='Module Site', slug='module-site')
+        self.endpoint = SnmpEndpoint.objects.create(
+            name='snmp-mod', site=self.site, collect_modules=True
+        )
+        self.sync = SnmpSynchronizer(self.endpoint, log=lambda *a, **k: None)
+
+    @staticmethod
+    def _columns():
+        columns = dict(INTERFACE_COLUMNS)
+        columns[oids.ENT_PHYSICAL_CLASS] = {
+            '1.3.6.1.2.1.47.1.1.1.1.5.214': 5,   # Fixed Slot-1 (container)
+            '1.3.6.1.2.1.47.1.1.1.1.5.22': 9,    # module
+        }
+        columns[oids.ENT_PHYSICAL_NAME] = {
+            '1.3.6.1.2.1.47.1.1.1.1.7.214': b'Fixed Slot-1',
+            '1.3.6.1.2.1.47.1.1.1.1.7.22': b'Nexus 5672UP Supervisor',
+        }
+        columns[oids.ENT_PHYSICAL_MODEL_NAME] = {
+            '1.3.6.1.2.1.47.1.1.1.1.13.22': b'N5K-C5672UP',
+        }
+        columns[oids.ENT_PHYSICAL_CONTAINED_IN] = {
+            '1.3.6.1.2.1.47.1.1.1.1.4.22': 214,
+        }
+        columns[oids.ENT_PHYSICAL_SERIAL_NUM] = {
+            '1.3.6.1.2.1.47.1.1.1.1.11.22': b'FOC190168BQ',
+        }
+        return columns
+
+    @staticmethod
+    def _run(sync):
+        client = FakeClient('10.0.0.1', system=dict(SYSTEM), columns=ModuleCollectionTestCase._columns())
+        with patch.object(sync, '_client_for', return_value=client):
+            sync._sync_device('10.0.0.1')
+
+    def test_creates_module_bay_and_module(self):
+        self._run(self.sync)
+        device = Device.objects.get(name='core-sw-1')
+        bay = device.modulebays.get(name='Fixed Slot-1')
+        module = device.modules.get()
+        self.assertEqual(module.module_bay, bay)
+        self.assertEqual(module.module_type.model, 'N5K-C5672UP')
+        self.assertEqual(module.serial, 'FOC190168BQ')
+
+    def test_idempotent_second_run(self):
+        self._run(self.sync)
+        self._run(self.sync)
+        device = Device.objects.get(name='core-sw-1')
+        self.assertEqual(device.modulebays.count(), 1)
+        self.assertEqual(device.modules.count(), 1)

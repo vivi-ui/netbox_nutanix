@@ -31,7 +31,8 @@ class SnmpEndpointSerializer(ValidatedModelSerializer):
             'priv_protocol', 'priv_key', 'port', 'timeout', 'retries', 'site', 'device_role',
             'manufacturer', 'device_type', 'tenant', 'delete_stale', 'discover_neighbors',
             'create_cables', 'max_depth', 'max_devices', 'collect_vlans', 'infer_prefixes',
-            'collect_arp', 'collect_fdb', 'max_arp_entries', 'created', 'last_updated',
+            'collect_arp', 'collect_fdb', 'max_arp_entries', 'collect_modules',
+            'created', 'last_updated',
         )
         brief_fields = ('id', 'url', 'display', 'name', 'enabled', 'snmp_version')
 

@@ -36,7 +36,9 @@ def to_python(value):
     if isinstance(value, _INTEGER_TYPES):
         return int(value)
     if isinstance(value, rfc1902.ObjectIdentifier):
-        return value.prettyPrint()
+        # Emit the dotted-numeric form so callers (e.g. vendor detection from
+        # sysObjectID) do not depend on the MIB modules loaded by pysnmp.
+        return '.'.join(str(part) for part in value.asTuple())
     if isinstance(value, rfc1902.OctetString):
         return value.asOctets()
     return value.prettyPrint()

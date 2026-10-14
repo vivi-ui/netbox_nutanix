@@ -126,6 +126,30 @@
           <th scope="row">Max devices</th>
           <td>{{ object.max_devices }}</td>
         </tr>
+        <tr>
+          <th scope="row">Create cables</th>
+          <td>{{ object.create_cables|yesno:"Yes,No" }}</td>
+        </tr>
+        <tr>
+          <th scope="row">Collect VLANs</th>
+          <td>{{ object.collect_vlans|yesno:"Yes,No" }}</td>
+        </tr>
+        <tr>
+          <th scope="row">Infer prefixes</th>
+          <td>{{ object.infer_prefixes|yesno:"Yes,No" }}</td>
+        </tr>
+        <tr>
+          <th scope="row">Collect ARP</th>
+          <td>{{ object.collect_arp|yesno:"Yes,No" }}</td>
+        </tr>
+        <tr>
+          <th scope="row">Collect forwarding table</th>
+          <td>{{ object.collect_fdb|yesno:"Yes,No" }}</td>
+        </tr>
+        <tr>
+          <th scope="row">Collect modules</th>
+          <td>{{ object.collect_modules|yesno:"Yes,No" }}</td>
+        </tr>
       </table>
     </div>
   </div>

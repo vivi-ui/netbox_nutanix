@@ -190,6 +190,15 @@ class SnmpEndpoint(JobsMixin, NetBoxModel):
         default=1000,
         help_text=_("Safety limit on the number of ARP entries processed per device."),
     )
+    collect_modules = models.BooleanField(
+        verbose_name=_('collect modules'),
+        default=False,
+        help_text=_(
+            "Read the ENTITY-MIB physical table and reconcile the chassis "
+            "module bays and their installed modules (line cards, power "
+            "supplies and fans)."
+        ),
+    )
     max_depth = models.PositiveIntegerField(
         verbose_name=_('maximum discovery depth'),
         default=1,

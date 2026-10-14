@@ -61,6 +61,7 @@ class SnmpEndpointForm(NetBoxModelForm):
             'site', 'device_role', 'manufacturer', 'device_type', 'tenant', 'delete_stale',
             'discover_neighbors', 'create_cables', 'max_depth', 'max_devices',
             'collect_vlans', 'infer_prefixes', 'collect_arp', 'collect_fdb', 'max_arp_entries',
+            'collect_modules',
         )
 
     fieldsets = (
@@ -87,6 +88,7 @@ class SnmpEndpointForm(NetBoxModelForm):
             'collect_vlans', 'infer_prefixes', 'collect_arp', 'collect_fdb', 'max_arp_entries',
             name='VLAN / ARP collection',
         ),
+        FieldSet('collect_modules', name='Hardware modules'),
     )
 
     def save(self, commit=True):
@@ -143,6 +145,11 @@ class SnmpEndpointBulkEditForm(NetBoxModelBulkEditForm):
         label='Collect FDB',
         widget=forms.Select(choices=BOOLEAN_WITH_BLANK_CHOICES),
     )
+    collect_modules = forms.NullBooleanField(
+        required=False,
+        label='Collect modules',
+        widget=forms.Select(choices=BOOLEAN_WITH_BLANK_CHOICES),
+    )
     timeout = forms.IntegerField(required=False, min_value=1, label='Timeout (s)')
     retries = forms.IntegerField(required=False, min_value=0, label='Retries')
     max_arp_entries = forms.IntegerField(required=False, min_value=1, label='Max ARP entries')
@@ -153,6 +160,7 @@ class SnmpEndpointBulkEditForm(NetBoxModelBulkEditForm):
         FieldSet('enabled', 'timeout', 'retries', 'delete_stale', 'discover_neighbors', 'create_cables'),
         FieldSet('collect_vlans', 'infer_prefixes', 'collect_arp', 'collect_fdb', 'max_arp_entries',
                  name='VLAN / ARP collection'),
+        FieldSet('collect_modules', name='Hardware modules'),
         FieldSet('device_role', 'tenant', name='Synchronization defaults'),
     )
     nullable_fields = ('device_role', 'tenant')
@@ -198,6 +206,7 @@ class SnmpEndpointImportForm(NetBoxModelImportForm):
             'site', 'device_role', 'manufacturer', 'device_type', 'tenant', 'delete_stale',
             'discover_neighbors', 'create_cables', 'max_depth', 'max_devices',
             'collect_vlans', 'infer_prefixes', 'collect_arp', 'collect_fdb', 'max_arp_entries',
+            'collect_modules',
         )
 
 

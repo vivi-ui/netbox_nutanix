@@ -23,6 +23,7 @@ from dcim.choices import (
     InterfaceModeChoices,
     InterfaceTypeChoices,
     LinkStatusChoices,
+    ModuleStatusChoices,
 )
 from dcim.models import (
     Cable,
@@ -33,6 +34,9 @@ from dcim.models import (
     Interface,
     MACAddress,
     Manufacturer,
+    Module,
+    ModuleBay,
+    ModuleType,
 )
 from ipam.choices import IPAddressStatusChoices, PrefixStatusChoices, VLANStatusChoices
 from ipam.models import IPAddress, Prefix, VLAN
@@ -95,6 +99,8 @@ VENDOR_BY_ENTERPRISE = {
     11863: 'TP-Link',
     12356: 'Fortinet',
     25506: 'H3C',
+    207: 'Allied Telesis',
+    30065: 'Arista',
 }
 
 ENTERPRISE_PREFIX = [1, 3, 6, 1, 4, 1]
@@ -111,6 +117,7 @@ class SyncResult:
         self.cables = 0
         self.errors = 0
         self.discovered = 0
+        self.modules = 0
         self.cancelled = False
 
     def summary(self):
@@ -122,16 +129,94 @@ class SyncResult:
 
 
 def vendor_name(sys_object_id):
-    """Return the manufacturer name implied by a sysObjectID, if known."""
+    """Return the manufacturer name implied by a sysObjectID, if known.
+
+    Accepts both the dotted-numeric form (``1.3.6.1.4.1.9.1.2494``) and the
+    symbolic form pysnmp may emit (``SNMPv2-SMI::enterprises.9.1.2494``).
+    """
     if not sys_object_id:
         return None
+    text = str(sys_object_id).strip()
+    if 'enterprises.' in text:
+        text = '1.3.6.1.4.1.' + text.split('enterprises.', 1)[1]
     try:
-        parts = [int(part) for part in str(sys_object_id).split('.')]
+        parts = [int(part) for part in text.split('.')]
     except (TypeError, ValueError):
         return None
     if parts[:len(ENTERPRISE_PREFIX)] != ENTERPRISE_PREFIX or len(parts) <= len(ENTERPRISE_PREFIX):
         return None
     return VENDOR_BY_ENTERPRISE.get(parts[len(ENTERPRISE_PREFIX)])
+
+
+# Ordered (pattern, vendor) pairs used to recognise a vendor from free-text
+# strings (sysDescr, ENTITY-MIB descriptions) when sysObjectID is unusable.
+# Platform-specific brands must precede broader patterns (e.g. ``Nexus``
+# before the generic ``Cisco`` rule) because the first match wins.
+VENDOR_DESCR_PATTERNS = [
+    (re.compile(r'\bnx-?os\b|\bnexus\b', re.IGNORECASE), 'Cisco'),
+    (re.compile(r'\bcisco\b|\bcatalyst\b|\bios[- ]?(?:xe|xr)?\b', re.IGNORECASE), 'Cisco'),
+    (re.compile(r'juniper|junos', re.IGNORECASE), 'Juniper'),
+    (re.compile(r'huawei|quidway|\bvrp\b', re.IGNORECASE), 'Huawei'),
+    (re.compile(r'\bh3c\b|comware', re.IGNORECASE), 'H3C'),
+    (re.compile(r'\baruba\b', re.IGNORECASE), 'Aruba'),
+    (re.compile(r'procurve|hewlett[- ]?packard|packard', re.IGNORECASE), 'Hewlett Packard'),
+    (re.compile(r'extremexos|extreme networks|\bextreme\b|\bxos\b', re.IGNORECASE), 'Extreme Networks'),
+    (re.compile(r'brocade|foundry|fastiron|netiron|\bicx\b', re.IGNORECASE), 'Brocade'),
+    (re.compile(r'd[- ]?link', re.IGNORECASE), 'D-Link'),
+    (re.compile(r'\bdell\b|force10|powerconnect|\bos9\b|\bos10\b', re.IGNORECASE), 'Dell'),
+    (re.compile(r'zyxel', re.IGNORECASE), 'ZyXEL'),
+    (re.compile(r'mikrotik|routeros', re.IGNORECASE), 'MikroTik'),
+    (re.compile(r'ubiquiti|edgeswitch|unifi|edgerouter', re.IGNORECASE), 'Ubiquiti'),
+    (re.compile(r'netgear', re.IGNORECASE), 'Netgear'),
+    (re.compile(r'ruijie|reyee|\brgos\b', re.IGNORECASE), 'Ruijie'),
+    (re.compile(r'alcatel[- ]?lucent|omniswitch|\blucent\b', re.IGNORECASE), 'Alcatel-Lucent'),
+    (re.compile(r'tp[- ]?link', re.IGNORECASE), 'TP-Link'),
+    (re.compile(r'fortinet|fortiswitch|fortigate', re.IGNORECASE), 'Fortinet'),
+    (re.compile(r'\bf5\b|big-?ip', re.IGNORECASE), 'F5 Networks'),
+    (re.compile(r'arista|\beos\b', re.IGNORECASE), 'Arista'),
+    (re.compile(r'allied[- ]?telesis', re.IGNORECASE), 'Allied Telesis'),
+]
+
+
+def vendor_from_descr(text):
+    """Best-effort vendor name from a free-text string, or ``None``."""
+    if not text:
+        return None
+    if isinstance(text, (bytes, bytearray)):
+        text = bytes(text).decode('utf-8', errors='replace')
+    for pattern, name in VENDOR_DESCR_PATTERNS:
+        if pattern.search(text):
+            return name
+    return None
+
+
+def vendor_from_entities(entities):
+    """Vendor name derived from ENTITY-MIB data, or ``None``.
+
+    ``entPhysicalVendorType`` is an OID whose enterprise arc names the vendor,
+    so it is consulted first; descriptive columns are scanned afterwards.
+    """
+    if not entities:
+        return None
+    for entry in entities.values():
+        name = vendor_name(entry.get('vendor_type'))
+        if name:
+            return name
+    for entry in entities.values():
+        for key in ('descr', 'model', 'name'):
+            name = vendor_from_descr(decode_text(entry.get(key)))
+            if name:
+                return name
+    return None
+
+
+def detect_vendor(sys_object_id=None, sys_descr='', entities=None):
+    """Resolve a vendor name from every available discovery signal."""
+    return (
+        vendor_name(sys_object_id)
+        or vendor_from_entities(entities)
+        or vendor_from_descr(sys_descr)
+    )
 
 
 class SnmpSynchronizer:
@@ -141,7 +226,10 @@ class SnmpSynchronizer:
         self.cancel_check = cancel_check
         self.result = SyncResult()
         self._manufacturer = None
+        self._sys_descr = ''
+        self._entities = {}
         self._device_types = {}
+        self._module_types = {}
         self._cable_links = []
 
     #
@@ -234,12 +322,12 @@ class SnmpSynchronizer:
         for host in network.hosts():
             yield str(host)
 
-    def _client_for(self, address, retries=None):
+    def _client_for(self, address, retries=None, community=None):
         return SnmpClient(
             host=address,
             port=self.endpoint.port,
             version=self.endpoint.snmp_version,
-            community=self.endpoint.get_community(),
+            community=self.endpoint.get_community() if community is None else community,
             security_username=self.endpoint.security_username,
             security_level=self.endpoint.security_level,
             auth_protocol=self.endpoint.auth_protocol,
@@ -250,12 +338,25 @@ class SnmpSynchronizer:
             retries=self.endpoint.retries if retries is None else retries,
         )
 
+    def _context_client(self, address, vid):
+        """
+        Return a client scoped to a single VLAN via the ``community@vid``
+        convention used by Cisco (NX-)OS to expose the per-VLAN BRIDGE-MIB.
+
+        Returns ``None`` when the endpoint is not using SNMPv2c community auth.
+        """
+        community = self.endpoint.get_community()
+        if not community:
+            return None
+        return self._client_for(address, community=f'{community}@{vid}')
+
     #
     # Device synchronization
     #
 
     def _sync_device(self, address):
         client = self._client_for(address)
+        self._address = address
 
         # Probe with a single attempt before the full poll: when sweeping a
         # large range, unresponsive hosts would otherwise pay the entire retry
@@ -281,8 +382,21 @@ class SnmpSynchronizer:
         if self.endpoint.collect_vlans or self.endpoint.collect_fdb:
             bridge_ports = self._collect_bridge_port_map(client)
         vlan_data = self._collect_vlans(client, bridge_ports) if self.endpoint.collect_vlans else []
-        fdb_map = self._collect_fdb(client, bridge_ports) if self.endpoint.collect_fdb else {}
+        vlan_ids = [v['vid'] for v in vlan_data] if vlan_data else None
+        fdb_map = self._collect_fdb(client, bridge_ports, vlan_ids) if self.endpoint.collect_fdb else {}
         arp_entries = self._collect_arp(client) if self.endpoint.collect_arp else []
+        entities = self._collect_entity_physical(client) if self.endpoint.collect_modules else {}
+
+        # Vendor detection: prefer sysObjectID, then ENTITY-MIB data, then the
+        # sysDescr text. Only pay for the extra ENTITY-MIB probe when the
+        # sysObjectID alone is inconclusive and no entity data was collected.
+        if entities or vendor_name(sys_object_id):
+            vendor_entities = entities
+        else:
+            vendor_entities = self._collect_entity_vendor(client)
+        self._sys_descr = sys_descr
+        self._entities = vendor_entities
+        self._manufacturer = None
 
         index_to_name = {nic['index']: nic['name'] for nic in interfaces}
         for link in links:
@@ -340,6 +454,8 @@ class SnmpSynchronizer:
                 self._sync_prefixes(device, interfaces, ip_map, vlans_by_vid)
             if self.endpoint.collect_arp:
                 self._sync_arp(device, arp_entries, fdb_map, interfaces_by_index)
+            if self.endpoint.collect_modules:
+                self._sync_modules(device, entities, sys_object_id)
 
             for link in links:
                 link.device = device
@@ -392,6 +508,49 @@ class SnmpSynchronizer:
             if not fallback:
                 fallback = text
         return fallback[:100]
+
+    def _collect_entity_physical(self, client):
+        """
+        Return ``{ent_index: {...}}`` from the ENTITY-MIB entPhysicalTable,
+        the hierarchy NetBox uses to model a chassis, its module bays and the
+        installed modules (line cards, power supplies, fans).
+        """
+        columns = {
+            'class': oids.ENT_PHYSICAL_CLASS,
+            'name': oids.ENT_PHYSICAL_NAME,
+            'descr': oids.ENT_PHYSICAL_DESCR,
+            'vendor_type': oids.ENT_PHYSICAL_VENDOR_TYPE,
+            'model': oids.ENT_PHYSICAL_MODEL_NAME,
+            'serial': oids.ENT_PHYSICAL_SERIAL_NUM,
+            'contained_in': oids.ENT_PHYSICAL_CONTAINED_IN,
+            'rel_pos': oids.ENT_PHYSICAL_PARENT_REL_POS,
+            'fru': oids.ENT_PHYSICAL_IS_FRU,
+        }
+
+        entities = {}
+        for field, oid in columns.items():
+            for row_oid, value in self._walk_or_empty(client, oid).items():
+                suffix = index_suffix(oid, row_oid)
+                if not suffix:
+                    continue
+                entities.setdefault(suffix[0], {})[field] = value
+        return entities
+
+    def _collect_entity_vendor(self, client):
+        """Minimal ENTITY-MIB probe used only to identify an unknown vendor."""
+        columns = (
+            ('vendor_type', oids.ENT_PHYSICAL_VENDOR_TYPE),
+            ('descr', oids.ENT_PHYSICAL_DESCR),
+            ('model', oids.ENT_PHYSICAL_MODEL_NAME),
+        )
+        entities = {}
+        for field, oid in columns:
+            for row_oid, value in self._walk_or_empty(client, oid).items():
+                suffix = index_suffix(oid, row_oid)
+                if not suffix:
+                    continue
+                entities.setdefault(suffix[0], {})[field] = value
+        return entities
 
     def _collect_interfaces(self, client):
         columns = {
@@ -510,9 +669,58 @@ class SnmpSynchronizer:
         for vlan in vlans.values():
             vlan['tagged'] = vlan['egress'] - vlan['untagged']
             result.append(vlan)
-        return result
+        if result:
+            return result
+        return self._collect_vlans_cisco(client)
 
-    def _collect_fdb(self, client, bridge_ports):
+    def _collect_vlans_cisco(self, client):
+        """
+        Fallback VLAN enumeration for devices without Q-BRIDGE-MIB support
+        (notably Cisco NX-OS), using CISCO-VTP-MIB for names and
+        CISCO-VLAN-MEMBERSHIP-MIB for untagged (access) membership.
+        """
+        names = self._walk_or_empty(client, oids.CISCO_VTP_VLAN_NAME)
+        states = self._walk_or_empty(client, oids.CISCO_VTP_VLAN_STATE)
+        membership = self._walk_or_empty(client, oids.CISCO_VM_MEMBERSHIP_IF_INDEX)
+
+        state_by_index = {}
+        for oid, value in states.items():
+            suffix = index_suffix(oids.CISCO_VTP_VLAN_STATE, oid)
+            if suffix:
+                try:
+                    state_by_index[tuple(suffix)] = int(value)
+                except (TypeError, ValueError):
+                    continue
+
+        vlans = {}
+
+        def entry(vid):
+            return vlans.setdefault(
+                vid, {'vid': vid, 'name': '', 'untagged': set(), 'tagged': set()}
+            )
+
+        for oid, value in names.items():
+            suffix = index_suffix(oids.CISCO_VTP_VLAN_NAME, oid)
+            if not suffix:
+                continue
+            state = state_by_index.get(tuple(suffix))
+            if state is not None and state != oids.VTP_VLAN_STATE_OPERATIONAL:
+                continue
+            entry(suffix[-1])['name'] = decode_text(value)
+
+        for oid, value in membership.items():
+            suffix = index_suffix(oids.CISCO_VM_MEMBERSHIP_IF_INDEX, oid)
+            if not suffix:
+                continue
+            try:
+                vid = int(value)
+            except (TypeError, ValueError):
+                continue
+            entry(vid)['untagged'].add(suffix[-1])
+
+        return list(vlans.values())
+
+    def _collect_fdb(self, client, bridge_ports, vlan_ids=None):
         """Return ``{mac: if_index}`` from the BRIDGE-MIB forwarding table."""
         fdb = {}
         for oid, value in self._walk_or_empty(client, oids.DOT1D_TP_FDB_PORT).items():
@@ -528,7 +736,49 @@ class SnmpSynchronizer:
                 continue
             if if_index:
                 fdb[mac.lower()] = if_index
+        if fdb:
+            return fdb
+        return self._collect_fdb_per_vlan(client, vlan_ids)
+
+    def _collect_fdb_per_vlan(self, client, vlan_ids=None):
+        """
+        Fallback forwarding-table enumeration for devices that only expose the
+        BRIDGE-MIB inside a per-VLAN ``community@vid`` context (Cisco NX-OS).
+        """
+        address = getattr(self, '_address', None)
+        if not address:
+            return {}
+        if vlan_ids is None:
+            vlan_ids = self._cisco_vlan_ids(client)
+        fdb = {}
+        for vid in vlan_ids or []:
+            context = self._context_client(address, vid)
+            if context is None:
+                continue
+            ports = self._collect_bridge_port_map(context)
+            for oid, value in self._walk_or_empty(context, oids.DOT1D_TP_FDB_PORT).items():
+                suffix = index_suffix(oids.DOT1D_TP_FDB_PORT, oid)
+                if len(suffix) < 6:
+                    continue
+                mac = mac_from_suffix(suffix[:6])
+                if not mac:
+                    continue
+                try:
+                    port = int(value)
+                except (TypeError, ValueError):
+                    continue
+                if_index = ports.get(port)
+                if if_index:
+                    fdb.setdefault(mac.lower(), if_index)
         return fdb
+
+    def _cisco_vlan_ids(self, client):
+        vids = []
+        for oid in self._walk_or_empty(client, oids.CISCO_VTP_VLAN_NAME):
+            suffix = index_suffix(oids.CISCO_VTP_VLAN_NAME, oid)
+            if suffix:
+                vids.append(suffix[-1])
+        return vids
 
     def _collect_arp(self, client):
         """Return the device's ARP table as ``{'ip', 'mac', 'if_index'}`` entries."""
@@ -936,6 +1186,83 @@ class SnmpSynchronizer:
 
         return by_vid
 
+    def _sync_modules(self, device, entities, sys_object_id):
+        """
+        Reconcile the ENTITY-MIB hierarchy into NetBox module bays and
+        modules: containers become bays, module/PSU/fan entities become
+        modules installed in the bay that contains them.
+        """
+        if not entities:
+            return
+
+        manufacturer = self._get_manufacturer(sys_object_id)
+
+        def text(index, key):
+            return decode_text(entities.get(index, {}).get(key))
+
+        bays = {}
+        for index, entry in entities.items():
+            if entry.get('class') != oids.ENT_CLASS_CONTAINER:
+                continue
+            name = text(index, 'name') or f'Bay {index}'
+            rel_pos = entry.get('rel_pos')
+            position = str(rel_pos) if rel_pos is not None else str(index)
+            bay, _ = ModuleBay.objects.get_or_create(
+                device=device,
+                name=name[:64],
+                defaults={'position': position[:30]},
+            )
+            bays[index] = bay
+
+        module_classes = (
+            oids.ENT_CLASS_MODULE,
+            oids.ENT_CLASS_POWER_SUPPLY,
+            oids.ENT_CLASS_FAN,
+        )
+        for index, entry in entities.items():
+            if entry.get('class') not in module_classes:
+                continue
+            bay = bays.get(entry.get('contained_in'))
+            if bay is None:
+                continue
+            model = text(index, 'model') or text(index, 'name') or f'Module {index}'
+            module_type, _ = self._get_module_type(manufacturer, model)
+            serial = text(index, 'serial')[:100]
+            module, created = Module.objects.get_or_create(
+                device=device,
+                module_bay=bay,
+                defaults={
+                    'module_type': module_type,
+                    'status': ModuleStatusChoices.STATUS_ACTIVE,
+                    'serial': serial,
+                },
+            )
+            if created:
+                self.result.modules += 1
+                continue
+            updates = []
+            if module.module_type_id != module_type.pk:
+                module.module_type = module_type
+                updates.append('module_type')
+            if serial and module.serial != serial:
+                module.serial = serial
+                updates.append('serial')
+            if updates:
+                module.save(update_fields=updates)
+
+    def _get_module_type(self, manufacturer, model):
+        model = (model or 'Unknown')[:100]
+        key = (manufacturer.pk, model)
+        if key in self._module_types:
+            return self._module_types[key], False
+        module_type, created = ModuleType.objects.get_or_create(
+            manufacturer=manufacturer,
+            model=model,
+            defaults={'part_number': ''},
+        )
+        self._module_types[key] = module_type
+        return module_type, created
+
     def _sync_prefixes(self, device, interfaces, ip_map, vlans_by_vid):
         for nic in interfaces:
             vid = self._vlan_id_from_name(nic['name'])
@@ -1049,7 +1376,11 @@ class SnmpSynchronizer:
         if self.endpoint.manufacturer:
             self._manufacturer = self.endpoint.manufacturer
             return self._manufacturer
-        name = vendor_name(sys_object_id) or 'Generic'
+        name = detect_vendor(
+            sys_object_id=sys_object_id,
+            sys_descr=self._sys_descr,
+            entities=self._entities,
+        ) or 'Generic'
         self._manufacturer, _ = Manufacturer.objects.get_or_create(
             name=name,
             defaults={'slug': slugify(name) or 'generic'},
