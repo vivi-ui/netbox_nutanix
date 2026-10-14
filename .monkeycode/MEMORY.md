@@ -84,3 +84,13 @@ Entries discovered by the Agent during task execution should follow this format:
   - 当某个插件的残留 `core.Job` 记录引用了一个已卸载插件的 ContentType 时，`/core/jobs/` 会因预取失败报 `'NoneType' object has no attribute '_base_manager'`（500）。修复方式：让对应插件重新可导入并启用，或清理这些残留 Job。
   - ESXi 端点的 SOAP API（`/sdk`）用 pyvmomi 访问；部分 ESXi 只提供 SOAP，不提供 vSphere Automation REST（`/api`，会返回 400/JSON-RPC 错误）。连接 ESXi 需在 venv 安装 `pyvmomi`（`/opt/netboxenv/bin/pip install pyvmomi`）。
   - 手动触发端点同步（走 worker）：`VMwareSyncJob.enqueue(instance=endpoint, name=..., cluster_pk=endpoint.pk, sync_hosts=True, sync_vms=True)`。
+
+[Project Knowledge Summary]
+- Date: 2026-10-14
+- Context: Discovered by Agent while troubleshooting a NetBox "Static Media Failure" after the dev environment restarted
+- Category: Troubleshooting & Debugging
+- Instructions:
+  - 开发环境重启后 PostgreSQL 与 Redis 都会停：需 `pg_ctlcluster 15 main start` 与 `redis-server /etc/redis/redis.conf --daemonize yes`（`service redis-server start` 会因日志文件属主 root 报 Permission denied 而失败）。
+  - 环境重启后 STATIC_ROOT（`/opt/netbox-4.4.0/netbox/static`，源自 `project-static/`）会被清空，页面报 "Static Media Failure ... setmode.js"。修复：`manage.py collectstatic --noinput`。
+  - Web 以 `runserver 0.0.0.0:8000 --insecure --noreload` 启动（DEBUG=False 时 `--insecure` 才服务 /static/）；Python 代码改动需重启，模板改动实时生效。
+  - 后台任务需 `manage.py rqworker`（新版 rqworker 无需显式队列名，默认 high/default/low）。
