@@ -29,8 +29,9 @@ class SnmpEndpointSerializer(ValidatedModelSerializer):
             'id', 'url', 'display_url', 'display', 'name', 'enabled', 'snmp_version',
             'community', 'security_username', 'security_level', 'auth_protocol', 'auth_key',
             'priv_protocol', 'priv_key', 'port', 'timeout', 'retries', 'site', 'device_role',
-            'manufacturer', 'device_type', 'tenant', 'delete_stale', 'discover_neighbors',
-            'create_cables', 'max_depth', 'max_devices', 'collect_vlans', 'infer_prefixes',
+            'manufacturer', 'device_type', 'tenant', 'delete_stale', 'quick_discovery',
+            'discover_neighbors', 'create_cables', 'max_depth', 'max_devices',
+            'collect_vlans', 'infer_prefixes',
             'collect_arp', 'collect_fdb', 'max_arp_entries', 'collect_modules',
             'created', 'last_updated',
         )

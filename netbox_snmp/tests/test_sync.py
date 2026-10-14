@@ -9,7 +9,7 @@ from ipam.models import IPAddress, Prefix, VLAN
 
 from netbox_snmp.exceptions import SyncCancelled
 from netbox_snmp.models import SnmpDevice, SnmpEndpoint, SnmpTarget
-from netbox_snmp.snmp import oids
+from netbox_snmp.snmp import SnmpClient, oids
 from netbox_snmp.sync import (
     SnmpSynchronizer,
     SyncResult,
@@ -55,6 +55,11 @@ class FakeClient:
 
     def walk(self, oid, max_rows=None):
         return self._columns.get(oid, {})
+
+
+def identity_probe(clients, concurrency=64):
+    """Stand-in for ``SnmpClient.probe_many`` that treats every host as live."""
+    return list(clients)
 
 
 class VendorTestCase(SimpleTestCase):
@@ -291,7 +296,8 @@ class SyncDeviceTestCase(TestCase):
                 return FakeClient(address, system=second_system, columns={})
             return FakeClient(address, system=dict(SYSTEM), columns=neighbor_columns)
 
-        with patch.object(self.sync, '_client_for', side_effect=fake_client_for):
+        with patch.object(self.sync, '_client_for', side_effect=fake_client_for), \
+                patch.object(SnmpClient, 'probe_many', side_effect=identity_probe):
             result = self.sync.run()
 
         self.assertEqual(result.discovered, 2)
@@ -307,6 +313,88 @@ class SyncDeviceTestCase(TestCase):
         self.assertTrue(SnmpDevice.objects.filter(pk=seen.pk).exists())
         self.assertFalse(SnmpDevice.objects.filter(pk=stale.pk).exists())
         self.assertEqual(self.sync.result.deleted, 1)
+
+
+class ProbeCandidatesTestCase(TestCase):
+    def setUp(self):
+        site = Site.objects.create(name='Probe Site', slug='probe-site')
+        self.endpoint = SnmpEndpoint.objects.create(name='snmp-probe', site=site)
+        self.sync = SnmpSynchronizer(self.endpoint, log=lambda *a, **k: None)
+
+    def test_returns_responsive_hosts(self):
+        live = SnmpClient('10.0.0.2')
+        with patch.object(SnmpClient, 'probe_many', return_value=[live]):
+            result = self.sync._probe_candidates(['10.0.0.1', '10.0.0.2'])
+        self.assertEqual(result, ['10.0.0.2'])
+
+    def test_falls_back_to_all_candidates_on_error(self):
+        with patch.object(SnmpClient, 'probe_many', side_effect=RuntimeError('boom')):
+            result = self.sync._probe_candidates(['10.0.0.1', '10.0.0.2'])
+        self.assertEqual(result, ['10.0.0.1', '10.0.0.2'])
+
+
+class RunProbeFilterTestCase(TestCase):
+    def setUp(self):
+        self.site = Site.objects.create(name='Filter Site', slug='filter-site')
+        self.endpoint = SnmpEndpoint.objects.create(name='snmp-filter', site=self.site)
+        self.sync = SnmpSynchronizer(self.endpoint, log=lambda *a, **k: None)
+        SnmpTarget.objects.create(endpoint=self.endpoint, address='10.0.0.0/30')
+
+    def test_run_only_syncs_responsive_hosts(self):
+        def fake_client_for(address, **kwargs):
+            return FakeClient(address, system=dict(SYSTEM), columns=dict(INTERFACE_COLUMNS))
+
+        def probe(clients, concurrency=64):
+            return [client for client in clients if client.host == '10.0.0.1']
+
+        with patch.object(self.sync, '_client_for', side_effect=fake_client_for), \
+                patch.object(SnmpClient, 'probe_many', side_effect=probe):
+            result = self.sync.run()
+
+        self.assertEqual(result.discovered, 1)
+        self.assertEqual(SnmpDevice.objects.filter(endpoint=self.endpoint).count(), 1)
+        self.assertTrue(SnmpDevice.objects.filter(address='10.0.0.1').exists())
+
+
+class QuickDiscoveryTestCase(TestCase):
+    def setUp(self):
+        self.site = Site.objects.create(name='Quick Site', slug='quick-site')
+        self.endpoint = SnmpEndpoint.objects.create(
+            name='snmp-quick', site=self.site, quick_discovery=True,
+            collect_vlans=True, collect_fdb=True, collect_arp=True, collect_modules=True,
+        )
+        self.sync = SnmpSynchronizer(self.endpoint, log=lambda *a, **k: None)
+
+    @staticmethod
+    def _columns():
+        columns = dict(INTERFACE_COLUMNS)
+        columns[oids.DOT1D_BASE_PORT_IF_INDEX] = {'1.3.6.1.2.1.17.1.4.1.2.1': 1}
+        columns[oids.DOT1Q_VLAN_STATIC_NAME] = {'1.3.6.1.2.1.17.7.1.4.3.1.1.100': b'users'}
+        columns[oids.DOT1Q_VLAN_STATIC_UNTAGGED] = {'1.3.6.1.2.1.17.7.1.4.3.1.4.100': b'\x80'}
+        columns[oids.DOT1Q_VLAN_STATIC_EGRESS] = {'1.3.6.1.2.1.17.7.1.4.3.1.2.100': b'\xc0'}
+        columns[oids.LLDP_REM_SYS_NAME] = {'1.0.8802.1.1.2.1.4.1.1.9.0.1.1': b'edge-sw-2'}
+        columns[oids.LLDP_REM_MAN_ADDR_IF_ID] = {
+            '1.0.8802.1.1.2.1.4.2.1.3.0.1.1.1.4.10.0.0.2': 1,
+        }
+        return columns
+
+    def _client(self):
+        return FakeClient('10.0.0.1', system=dict(SYSTEM), columns=self._columns())
+
+    def test_quick_skips_neighbors_vlan_and_modules(self):
+        with patch.object(self.sync, '_client_for', return_value=self._client()):
+            addresses, links = self.sync._sync_device('10.0.0.1', quick=True)
+
+        self.assertEqual(addresses, set())
+        self.assertEqual(links, [])
+        self.assertFalse(VLAN.objects.exists())
+        self.assertTrue(Device.objects.get(name='core-sw-1').interfaces.exists())
+
+    def test_full_collects_vlan(self):
+        with patch.object(self.sync, '_client_for', return_value=self._client()):
+            self.sync._sync_device('10.0.0.1', quick=False)
+
+        self.assertTrue(VLAN.objects.filter(vid=100).exists())
 
 
 class CableTestCase(TestCase):
@@ -351,7 +439,8 @@ class CableTestCase(TestCase):
         client_for = self._fake_client_for(
             self._local_columns_with_link(), self._columns('Gi0/2')
         )
-        with patch.object(SnmpSynchronizer, '_client_for', side_effect=client_for):
+        with patch.object(SnmpSynchronizer, '_client_for', side_effect=client_for), \
+                patch.object(SnmpClient, 'probe_many', side_effect=identity_probe):
             result = run_sync(self.endpoint, log=lambda *a, **k: None)
 
         self.assertEqual(result.cables, 1)
@@ -367,7 +456,8 @@ class CableTestCase(TestCase):
         client_for = self._fake_client_for(
             self._local_columns_with_link(), self._columns('Gi0/2')
         )
-        with patch.object(SnmpSynchronizer, '_client_for', side_effect=client_for):
+        with patch.object(SnmpSynchronizer, '_client_for', side_effect=client_for), \
+                patch.object(SnmpClient, 'probe_many', side_effect=identity_probe):
             run_sync(self.endpoint, log=lambda *a, **k: None)
             second = run_sync(self.endpoint, log=lambda *a, **k: None)
 

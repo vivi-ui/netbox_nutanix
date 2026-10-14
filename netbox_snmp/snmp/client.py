@@ -195,6 +195,46 @@ class SnmpClient:
         result = self.get(list(oids.SYSTEM_OIDS.values()))
         return {name: result.get(oid) for name, oid in oids.SYSTEM_OIDS.items()}
 
+    @staticmethod
+    def probe_many(clients, concurrency=64):
+        """
+        Probe several hosts concurrently with a single GET of ``sysDescr``.
+
+        Returns the subset of ``clients`` that answered, preserving input order.
+        All requests share one :class:`SnmpEngine` and event loop, which is what
+        makes sweeping a large CIDR fast compared to polling each host
+        sequentially (where every dead host costs a full request).
+        """
+        clients = list(clients)
+        if not clients:
+            return []
+
+        async def probe(engine, semaphore, client):
+            async with semaphore:
+                try:
+                    error_indication, error_status, error_index, result = await get_cmd(
+                        engine,
+                        client._auth_data(),
+                        await client._transport(),
+                        ContextData(),
+                        ObjectType(ObjectIdentity(oids.SYS_DESCR)),
+                    )
+                except Exception:  # noqa: BLE001 - unreachable hosts must not abort the sweep
+                    return None
+                if error_indication or error_status or not result:
+                    return None
+                return client
+
+        async def runner():
+            engine = SnmpEngine()
+            semaphore = asyncio.Semaphore(max(1, int(concurrency)))
+            results = await asyncio.gather(
+                *(probe(engine, semaphore, client) for client in clients)
+            )
+            return results
+
+        return [client for client in asyncio.run(runner()) if client is not None]
+
     #
     # Internals
     #

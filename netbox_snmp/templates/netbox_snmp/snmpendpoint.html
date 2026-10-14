@@ -85,6 +85,34 @@
             <i class="mdi mdi-stop"></i> Stop
           </button>
         </form>
+        {% if latest_job %}
+          <hr>
+          <div class="d-flex justify-content-between align-items-center">
+            <h6 class="mb-1">Latest discovery job</h6>
+            <a href="{{ latest_job.get_absolute_url }}" class="btn btn-sm btn-ghost-secondary">
+              Full log
+            </a>
+          </div>
+          <p class="mb-2">
+            <span class="badge text-bg-{% if job_running %}info{% elif latest_job.status == 'completed' %}success{% else %}danger{% endif %}">
+              {{ latest_job.get_status_display }}
+            </span>
+            <span class="text-muted small">{{ latest_job.started|date:"Y-m-d H:i:s" }}</span>
+          </p>
+          {% if job_logs %}
+            <pre class="mb-0 border rounded p-2" style="max-height: 14rem; overflow-y: auto; font-size: .78rem; white-space: pre-wrap;">{% for entry in job_logs %}{{ entry.message }}
+{% endfor %}</pre>
+          {% else %}
+            <p class="text-muted mb-0">No log output yet.</p>
+          {% endif %}
+          {% if job_running %}
+            <p class="text-muted small mt-2 mb-0">
+              <span class="spinner-border spinner-border-sm" role="status"></span>
+              Running; refreshing every 5 seconds&hellip;
+            </p>
+            <script>setTimeout(function () { window.location.reload(); }, 5000);</script>
+          {% endif %}
+        {% endif %}
       </div>
     </div>
     <div class="card">
@@ -113,6 +141,10 @@
         <tr>
           <th scope="row">Delete stale objects</th>
           <td>{{ object.delete_stale|yesno:"Yes,No" }}</td>
+        </tr>
+        <tr>
+          <th scope="row">Quick discovery</th>
+          <td>{{ object.quick_discovery|yesno:"Yes,No" }}</td>
         </tr>
         <tr>
           <th scope="row">Discover neighbors</th>

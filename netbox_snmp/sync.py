@@ -251,14 +251,50 @@ class SnmpSynchronizer:
     def run(self):
         self.log(f"Starting SNMP sync for endpoint '{self.endpoint}'")
 
-        queue = deque()
+        quick = self.endpoint.quick_discovery
+        limit = self.endpoint.max_devices or 256
+
+        # Expand every enabled target into a flat, de-duplicated candidate list.
+        candidates = []
+        seen = set()
+        explicit = set()
         for target in self.endpoint.targets.filter(enabled=True):
             for address in self._expand_target(target.address):
-                queue.append((address, 0))
+                if address not in seen:
+                    seen.add(address)
+                    candidates.append(address)
+            if '/' not in str(target.address or ''):
+                try:
+                    explicit.add(str(ipaddress.ip_address(str(target.address).strip())))
+                except ValueError:
+                    pass
 
+        if not candidates:
+            self.log("No target addresses configured; nothing to do.")
+            self.log(f"SNMP sync finished for '{self.endpoint}': {self.result.summary()}")
+            return self.result
+
+        self.log(f"Expanded targets to {len(candidates)} candidate address(es)")
+
+        if self._should_stop():
+            self.log(f"SNMP sync finished for '{self.endpoint}': {self.result.summary()}")
+            return self.result
+
+        # Concurrent liveness probe: identifies responsive hosts up front so a
+        # large CIDR does not pay the full retry budget on every empty address.
+        responsive = self._probe_candidates(candidates)
+        responsive_set = set(responsive)
+        self.log(
+            f"Probe complete: {len(responsive)} of {len(candidates)} address(es) responded"
+        )
+        for address in sorted(explicit - responsive_set):
+            self.result.errors += 1
+            self.log(f"ERROR {address}: no SNMP response")
+
+        queue = deque((address, 0) for address in responsive)
         visited = set()
         managed = set()
-        limit = self.endpoint.max_devices or 256
+        index = 0
 
         while queue and len(visited) < limit:
             if self._should_stop():
@@ -267,9 +303,11 @@ class SnmpSynchronizer:
             if address in visited:
                 continue
             visited.add(address)
+            index += 1
+            self.log(f"[{index}] Syncing {address} (depth {depth})")
 
             try:
-                addresses, links = self._sync_device(address)
+                addresses, links = self._sync_device(address, quick=quick)
             except SyncCancelled:
                 break
             except (SnmpTimeoutError, SnmpAuthError) as e:
@@ -289,13 +327,13 @@ class SnmpSynchronizer:
             self.result.discovered += 1
             self._cable_links.extend(links)
 
-            if self.endpoint.discover_neighbors and depth < self.endpoint.max_depth:
+            if not quick and self.endpoint.discover_neighbors and depth < self.endpoint.max_depth:
                 for neighbor in addresses:
                     if neighbor not in visited:
                         queue.append((neighbor, depth + 1))
 
         if not self._should_stop():
-            if self.endpoint.create_cables:
+            if self.endpoint.create_cables and not quick:
                 self._sync_cables()
 
             if self.endpoint.delete_stale:
@@ -303,6 +341,27 @@ class SnmpSynchronizer:
 
         self.log(f"SNMP sync finished for '{self.endpoint}': {self.result.summary()}")
         return self.result
+
+    def _probe_candidates(self, candidates):
+        """
+        Return the candidate addresses that answer an SNMP probe.
+
+        The probe uses a short timeout with no retries and runs the hosts
+        concurrently. If the concurrent probe raises (e.g. a pysnmp transport
+        issue), fall back to the full candidate list so sequential polling still
+        has a chance to work.
+        """
+        probe_timeout = max(0.5, min(float(self.endpoint.timeout or 1), 2.0))
+        clients = [
+            self._client_for(address, retries=0, timeout=probe_timeout)
+            for address in candidates
+        ]
+        try:
+            responsive = SnmpClient.probe_many(clients, concurrency=64)
+        except Exception as e:  # noqa: BLE001 - degrade gracefully rather than fail the run
+            self.log(f"Concurrent probe failed ({e}); polling candidates sequentially")
+            return list(candidates)
+        return [client.host for client in responsive]
 
     def _expand_target(self, address):
         """Yield the concrete host addresses for a target (plain IP or CIDR)."""
@@ -322,7 +381,7 @@ class SnmpSynchronizer:
         for host in network.hosts():
             yield str(host)
 
-    def _client_for(self, address, retries=None, community=None):
+    def _client_for(self, address, retries=None, community=None, timeout=None):
         return SnmpClient(
             host=address,
             port=self.endpoint.port,
@@ -334,7 +393,7 @@ class SnmpSynchronizer:
             auth_key=self.endpoint.get_auth_key(),
             priv_protocol=self.endpoint.priv_protocol,
             priv_key=self.endpoint.get_priv_key(),
-            timeout=self.endpoint.timeout,
+            timeout=self.endpoint.timeout if timeout is None else timeout,
             retries=self.endpoint.retries if retries is None else retries,
         )
 
@@ -354,13 +413,14 @@ class SnmpSynchronizer:
     # Device synchronization
     #
 
-    def _sync_device(self, address):
+    def _sync_device(self, address, quick=False):
         client = self._client_for(address)
         self._address = address
 
         # Probe with a single attempt before the full poll: when sweeping a
         # large range, unresponsive hosts would otherwise pay the entire retry
         # budget (timeout x (retries + 1)) before being skipped.
+        self.log(f"  {address}: reading system group")
         system = self._client_for(address, retries=0).get_system()
         sys_descr = decode_text(system.get('sys_descr'))
         sys_name = decode_text(system.get('sys_name'))
@@ -372,26 +432,55 @@ class SnmpSynchronizer:
         sys_location = decode_text(system.get('sys_location'))
         uptime_ticks = system.get('sys_uptime')
         uptime = int(uptime_ticks) // 100 if uptime_ticks else None
+        self.log(
+            f"  {address}: system name '{sys_name or address}', "
+            f"sysObjectID {sys_object_id or 'n/a'}"
+        )
 
         serial = self._get_serial(client)
+        self.log(f"  {address}: serial {serial or 'n/a'}")
         interfaces = self._collect_interfaces(client)
+        self.log(f"  {address}: {len(interfaces)} interface(s)")
         ip_map = self._collect_ipv4_addresses(client)
-        addresses, links = self._collect_neighbors(client)
+        ip_total = sum(len(v) for v in ip_map.values())
+        self.log(f"  {address}: {ip_total} IPv4 address(es)")
 
+        addresses = set()
+        links = []
         bridge_ports = {}
-        if self.endpoint.collect_vlans or self.endpoint.collect_fdb:
-            bridge_ports = self._collect_bridge_port_map(client)
-        vlan_data = self._collect_vlans(client, bridge_ports) if self.endpoint.collect_vlans else []
-        vlan_ids = [v['vid'] for v in vlan_data] if vlan_data else None
-        fdb_map = self._collect_fdb(client, bridge_ports, vlan_ids) if self.endpoint.collect_fdb else {}
-        arp_entries = self._collect_arp(client) if self.endpoint.collect_arp else []
-        entities = self._collect_entity_physical(client) if self.endpoint.collect_modules else {}
+        vlan_data = []
+        fdb_map = {}
+        arp_entries = []
+        entities = {}
+
+        if quick:
+            self.log(f"  {address}: quick discovery - skipping neighbors/VLAN/FDB/ARP/modules")
+        else:
+            addresses, links = self._collect_neighbors(client)
+            self.log(f"  {address}: {len(links)} neighbor link(s)")
+            if self.endpoint.collect_vlans or self.endpoint.collect_fdb:
+                bridge_ports = self._collect_bridge_port_map(client)
+            if self.endpoint.collect_vlans:
+                vlan_data = self._collect_vlans(client, bridge_ports)
+                self.log(f"  {address}: {len(vlan_data)} VLAN(s)")
+            vlan_ids = [v['vid'] for v in vlan_data] if vlan_data else None
+            if self.endpoint.collect_fdb:
+                fdb_map = self._collect_fdb(client, bridge_ports, vlan_ids)
+                self.log(f"  {address}: {len(fdb_map)} forwarding entr(ies)")
+            if self.endpoint.collect_arp:
+                arp_entries = self._collect_arp(client)
+                self.log(f"  {address}: {len(arp_entries)} ARP entr(ies)")
+            if self.endpoint.collect_modules:
+                entities = self._collect_entity_physical(client)
+                self.log(f"  {address}: {len(entities)} entPhysical entit(ies)")
 
         # Vendor detection: prefer sysObjectID, then ENTITY-MIB data, then the
         # sysDescr text. Only pay for the extra ENTITY-MIB probe when the
         # sysObjectID alone is inconclusive and no entity data was collected.
         if entities or vendor_name(sys_object_id):
             vendor_entities = entities
+        elif quick:
+            vendor_entities = {}
         else:
             vendor_entities = self._collect_entity_vendor(client)
         self._sys_descr = sys_descr
@@ -447,15 +536,16 @@ class SnmpSynchronizer:
             ips, interfaces_by_index = self._sync_interfaces(device, interfaces, ip_map)
             self._set_primary_ips(device, ips, preferred=address)
 
-            vlans_by_vid = {}
-            if self.endpoint.collect_vlans:
-                vlans_by_vid = self._sync_vlans(device, vlan_data, interfaces_by_index)
-            if self.endpoint.infer_prefixes:
-                self._sync_prefixes(device, interfaces, ip_map, vlans_by_vid)
-            if self.endpoint.collect_arp:
-                self._sync_arp(device, arp_entries, fdb_map, interfaces_by_index)
-            if self.endpoint.collect_modules:
-                self._sync_modules(device, entities, sys_object_id)
+            if not quick:
+                vlans_by_vid = {}
+                if self.endpoint.collect_vlans:
+                    vlans_by_vid = self._sync_vlans(device, vlan_data, interfaces_by_index)
+                if self.endpoint.infer_prefixes:
+                    self._sync_prefixes(device, interfaces, ip_map, vlans_by_vid)
+                if self.endpoint.collect_arp:
+                    self._sync_arp(device, arp_entries, fdb_map, interfaces_by_index)
+                if self.endpoint.collect_modules:
+                    self._sync_modules(device, entities, sys_object_id)
 
             for link in links:
                 link.device = device

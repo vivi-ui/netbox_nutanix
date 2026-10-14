@@ -42,3 +42,24 @@ class CancelViewTestCase(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'No running discovery job')
+
+    def test_detail_shows_latest_job_progress(self):
+        job = self._running_job()
+        Job.objects.filter(pk=job.pk).update(
+            log_entries=[{'level': 'info', 'message': 'probing candidates', 'timestamp': '2026-01-01T00:00:00Z'}]
+        )
+        url = reverse('plugins:netbox_snmp:snmpendpoint', args=[self.endpoint.pk])
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context['latest_job'].pk, job.pk)
+        self.assertTrue(response.context['job_running'])
+        self.assertContains(response, 'probing candidates')
+
+    def test_detail_without_job_has_no_progress_panel(self):
+        url = reverse('plugins:netbox_snmp:snmpendpoint', args=[self.endpoint.pk])
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(response.context['latest_job'])
+        self.assertFalse(response.context['job_running'])

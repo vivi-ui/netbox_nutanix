@@ -25,12 +25,23 @@ class SnmpEndpointView(generic.ObjectView):
     queryset = models.SnmpEndpoint.objects.all()
 
     def get_extra_context(self, request, instance):
+        object_type = ContentType.objects.get_for_model(models.SnmpEndpoint)
+        latest_job = Job.objects.filter(
+            object_type=object_type,
+            object_id=instance.pk,
+        ).order_by('-created').first()
+        job_logs = list(latest_job.log_entries or [])[-12:] if latest_job else []
         return {
             'targets_table': tables.SnmpTargetTable(
                 instance.targets.all(), orderable=False
             ),
             'devices_table': tables.SnmpDeviceTable(
                 instance.devices.all(), orderable=False
+            ),
+            'latest_job': latest_job,
+            'job_logs': job_logs,
+            'job_running': bool(
+                latest_job and latest_job.status in JobStatusChoices.ENQUEUED_STATE_CHOICES
             ),
         }
 

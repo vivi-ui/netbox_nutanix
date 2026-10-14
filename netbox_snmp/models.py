@@ -148,6 +148,15 @@ class SnmpEndpoint(JobsMixin, NetBoxModel):
         default=True,
         help_text=_("Follow LLDP/CDP neighbors to discover adjacent switches."),
     )
+    quick_discovery = models.BooleanField(
+        verbose_name=_('quick discovery'),
+        default=False,
+        help_text=_(
+            "Only collect the device, its interfaces and IP addresses. Skips "
+            "neighbors, VLANs, the forwarding table, ARP and modules for a "
+            "much faster run."
+        ),
+    )
     create_cables = models.BooleanField(
         verbose_name=_('create cables'),
         default=False,

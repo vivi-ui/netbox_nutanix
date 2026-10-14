@@ -1,9 +1,37 @@
 from django.test import SimpleTestCase
+from pysnmp.hlapi.asyncio import SnmpEngine
+from pysnmp.proto import rfc1902
+from pysnmp.smi.rfc1902 import ObjectIdentity
+from pysnmp.smi.view import MibViewController
 
 from dcim.choices import InterfaceTypeChoices
 
 from netbox_snmp.snmp import parsers
 from netbox_snmp.snmp.client import index_suffix
+
+
+class ToPythonTestCase(SimpleTestCase):
+    def test_integer(self):
+        self.assertEqual(parsers.to_python(rfc1902.Integer(42)), 42)
+
+    def test_octet_string(self):
+        self.assertEqual(parsers.to_python(rfc1902.OctetString(b'abc')), b'abc')
+
+    def test_object_identifier_is_numeric(self):
+        self.assertEqual(
+            parsers.to_python(rfc1902.ObjectIdentifier('1.3.6.1.4.1.9.1.2494')),
+            '1.3.6.1.4.1.9.1.2494',
+        )
+
+    def test_object_identity_is_numeric(self):
+        # pysnmp returns GET/WALK values as a *resolved* ObjectIdentity, which
+        # would otherwise prettyPrint to a symbolic name such as
+        # ``SNMPv2-SMI::enterprises.9.1.2494``.
+        engine = SnmpEngine()
+        mib_view = MibViewController(engine.get_mib_builder())
+        identity = ObjectIdentity('1.3.6.1.4.1.9.1.2494')
+        identity.resolve_with_mib(mib_view)
+        self.assertEqual(parsers.to_python(identity), '1.3.6.1.4.1.9.1.2494')
 
 
 class IndexSuffixTestCase(SimpleTestCase):

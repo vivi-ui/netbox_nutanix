@@ -9,6 +9,7 @@ the standard MIBs (MAC addresses, addresses embedded in OIDs, netmasks, ...).
 import ipaddress
 
 from pysnmp.proto import rfc1902
+from pysnmp.smi.rfc1902 import ObjectIdentity
 
 from dcim.choices import InterfaceTypeChoices
 
@@ -35,10 +36,14 @@ def to_python(value):
         return None
     if isinstance(value, _INTEGER_TYPES):
         return int(value)
-    if isinstance(value, rfc1902.ObjectIdentifier):
+    if isinstance(value, (rfc1902.ObjectIdentifier, ObjectIdentity)):
         # Emit the dotted-numeric form so callers (e.g. vendor detection from
         # sysObjectID) do not depend on the MIB modules loaded by pysnmp.
-        return '.'.join(str(part) for part in value.asTuple())
+        # ``prettyPrint`` would resolve the OID against those MIBs and return a
+        # symbolic name (``SNMPv2-SMI::enterprises.9...``); ``str`` stays
+        # numeric. pysnmp returns GET/WALK results as either type depending on
+        # the code path, so both must be handled.
+        return str(value)
     if isinstance(value, rfc1902.OctetString):
         return value.asOctets()
     return value.prettyPrint()
